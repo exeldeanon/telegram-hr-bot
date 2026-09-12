@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
+import { adminMenu, button, keyboard } from "./ui.js";
 
 export class Admin {
   constructor(bot) {
@@ -35,7 +36,7 @@ export class Admin {
       const label = { visit: "👋 Пользователь запустил бота", started: "✍️ Начал заполнять анкету", application: "📨 Новая заявка" }[event.type];
       const text = `${label} · №${event.id}\n${event.username ? `@${event.username} · ` : ""}ID: ${event.userId}\n${event.at}\n\n${event.text}`;
       try {
-        await this.bot.sendMessage(this.id, text);
+        await this.bot.sendMessage(this.id, text, event.type === "application" ? keyboard([button("📄 Открыть заявку", `admin:item:${event.id}`)], [button("📊 Статистика", "admin:stats")]) : adminMenu());
         event.delivered = true;
         await this.save(data);
       } catch (error) {
@@ -61,15 +62,21 @@ export class Admin {
       const day = (at) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Moscow" }).format(new Date(at));
       const today = events.filter((event) => day(event.at) === day(Date.now()));
       const stats = (items) => `Запустили бота: ${new Set(items.filter((e) => e.type === "visit").map((e) => e.userId)).size}\nНачали анкету: ${new Set(items.filter((e) => e.type === "started").map((e) => e.userId)).size}\nПодано заявок: ${items.filter((e) => e.type === "application").length}`;
-      await this.bot.sendMessage(this.id, `📊 Админка\n\nЗа всё время\n${stats(events)}\n\nСегодня (Москва)\n${stats(today)}\n\nОжидают уведомления: ${events.filter((e) => !e.delivered).length}\n\n/applications — список заявок\nЗапуски и начала — уникальные пользователи за период. Учёт с момента установки обновления.`);
+      await this.bot.sendMessage(this.id, `HR PRIME · ПАНЕЛЬ УПРАВЛЕНИЯ\n\n📊 За всё время\n${stats(events)}\n\n☀️ Сегодня (Москва)\n${stats(today)}\n\n🔔 Ожидают уведомления: ${events.filter((e) => !e.delivered).length}\n\nЗапуски и начала — уникальные пользователи за период. Учёт с момента установки обновления.`, adminMenu());
     } else if (command === "/applications") {
       const pages = Math.max(1, Math.ceil(applications.length / 10));
       const page = Math.min(pages, Math.max(1, Number.parseInt(arg, 10) || 1));
       const items = applications.slice().reverse().slice((page - 1) * 10, page * 10);
-      await this.bot.sendMessage(this.id, `Заявки: ${applications.length} · страница ${page}/${pages}\n\n${items.map((e) => `№${e.id} · ${e.at.slice(0, 10)} · ID ${e.userId}\n/application ${e.id}`).join("\n\n") || "Пока нет заявок."}${page < pages ? `\n\n/applications ${page + 1} — следующая страница` : ""}`);
+      const controls = items.map((e) => [button(`📄 Заявка №${e.id}`, `admin:item:${e.id}`)]);
+      const navigation = [];
+      if (page > 1) navigation.push(button("‹ Назад", `admin:list:${page - 1}`));
+      if (page < pages) navigation.push(button("Далее ›", `admin:list:${page + 1}`));
+      if (navigation.length) controls.push(navigation);
+      controls.push([button("📊 В админку", "admin:stats")]);
+      await this.bot.sendMessage(this.id, `📂 ЗАЯВКИ · ${applications.length}\nСтраница ${page}/${pages}\n\n${items.map((e) => `№${e.id} · ${e.at.slice(0, 10)} · ID ${e.userId}`).join("\n\n") || "Пока нет заявок."}\n\nВыберите карточку ниже.`, keyboard(...controls));
     } else {
       const event = applications.find((item) => String(item.id) === arg);
-      await this.bot.sendMessage(this.id, event ? `Заявка №${event.id}\nID: ${event.userId}\n${event.username ? `@${event.username}\n` : ""}${event.text}` : "Заявка не найдена.");
+      await this.bot.sendMessage(this.id, event ? `Заявка №${event.id}\nID: ${event.userId}\n${event.username ? `@${event.username}\n` : ""}${event.text}` : "Заявка не найдена.", adminMenu());
     }
     return true;
   }

@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { VACANCIES } from "./vacancies.js";
 import { Admin } from "./admin.js";
+import { button, keyboard, questionCard, vacancyLabels } from "./ui.js";
 
 const CALLBACKS = {
   acceptConsent: "consent:accept",
@@ -74,11 +75,11 @@ export class TelegramHrBot {
     }
 
     if (transition.nextStep === "awaiting_vacancy") {
-      await this.sendMessage(chatId, "Спасибо! Теперь выберите вакансию:", this.vacancyKeyboard());
+      await this.sendMessage(chatId, "HR PRIME · ВАКАНСИИ\n●●●●●●●●  8/8\n\n✨ Знакомство завершено!\nВыберите направление — покажу задачи и условия.", this.vacancyKeyboard());
       return;
     }
 
-    await this.sendMessage(chatId, QUESTIONS[transition.nextStep] ?? "Чтобы начать анкету, отправьте /start.");
+    await this.sendMessage(chatId, questionCard(QUESTIONS, transition.nextStep));
   }
 
   async handleCallback(callback) {
@@ -91,12 +92,25 @@ export class TelegramHrBot {
     }
 
     if (!chatId || callback.message.chat.type !== "private" || !callback.from) return;
+    if (data.startsWith("admin:")) {
+      const parts = data.split(":");
+      const command = parts[1] === "list" ? `/applications ${parts[2] || 1}` : parts[1] === "item" ? `/application ${parts[2]}` : "/admin";
+      await this.admin.command({ chat: callback.message.chat, from: callback.from }, command);
+      return;
+    }
+    if (data === "vacancies:back") {
+      const state = await this.loadState(chatId);
+      if (state.step !== "awaiting_submission") return;
+      await this.saveState(chatId, { ...state, step: "awaiting_vacancy" });
+      await this.sendMessage(chatId, "🧭 Выберите другое направление", this.vacancyKeyboard());
+      return;
+    }
 
     if (data === CALLBACKS.acceptConsent) {
       const state = await this.loadState(chatId);
       if (state.step !== "awaiting_consent") return;
       await this.saveState(chatId, { ...state, step: "awaiting_name", draft: {} });
-      await this.sendMessage(chatId, QUESTIONS.awaiting_name);
+      await this.sendMessage(chatId, questionCard(QUESTIONS, "awaiting_name"));
       return;
     }
 
@@ -146,7 +160,7 @@ export class TelegramHrBot {
       });
 
       if (sentToManager) {
-        await this.sendMessage(chatId, `Анкета принята. Спасибо!\n\n${application}`);
+        await this.sendMessage(chatId, `✅ ЗАЯВКА ПРИНЯТА\n\nСпасибо за знакомство! Ваша анкета сохранена для рассмотрения.\n\n${application}`);
         return;
       }
 
@@ -285,38 +299,50 @@ export class TelegramHrBot {
   }
 
   welcomeText() {
-    return `Здравствуйте! 👋
-Я - HR-бот HR Prime. Помогу пройти короткую анкету, выбрать подходящую вакансию и передать заявку HR-менеджеру.
+    return `HR PRIME · КАРЬЕРА
+
+👋 Давайте найдём ваше направление
+
+Помогу познакомиться с вакансиями и подать заявку HR-менеджеру.
+
+✍️ 8 коротких вопросов
+🧭 Выбор направления
+📨 Подача анкеты
 
 Перед началом ознакомьтесь с документами:
 🔗 Политика конфиденциальности: ${this.config.POLICY_URL}
 🔗 Согласие на обработку персональных данных: ${this.config.PERSONAL_DATA_URL}
 
-Нажимая «Принимаю», вы соглашаетесь с обоими документами.`;
+Нажимая «Принимаю · начать», вы соглашаетесь с обоими документами.`;
   }
 
   helpText() {
-    return `Чтобы пройти анкету, отправьте /start и нажмите «Принимаю». Затем ответьте по очереди на 8 коротких вопросов, выберите вакансию и нажмите «Отправить анкету».
+    return `🧭 Как подать заявку
+
+Отправьте /start и нажмите «Принимаю · начать». Ответьте на 8 коротких вопросов, выберите вакансию и нажмите «Подать заявку».
 
 /restart — начать анкету заново
 /help — показать эту подсказку`;
   }
 
   consentKeyboard() {
-    return { inline_keyboard: [[{ text: "✅ Принимаю", callback_data: CALLBACKS.acceptConsent }]] };
+    return keyboard([button("✅ Принимаю · начать →", CALLBACKS.acceptConsent)]);
   }
 
   vacancyKeyboard() {
     return {
       inline_keyboard: Object.entries(VACANCIES).map(([id, vacancy]) => [
-        { text: vacancy.title, callback_data: `${CALLBACKS.vacancyPrefix}${id}` },
+        { text: vacancyLabels[id] || vacancy.title, callback_data: `${CALLBACKS.vacancyPrefix}${id}` },
       ]),
     };
   }
 
   submitKeyboard(vacancyId) {
     return {
-      inline_keyboard: [[{ text: "✅ Отправить анкету", callback_data: `${CALLBACKS.submitPrefix}${vacancyId}` }]],
+      inline_keyboard: [
+        [button("📨 Подать заявку →", `${CALLBACKS.submitPrefix}${vacancyId}`)],
+        [button("‹ Другие вакансии", "vacancies:back")],
+      ],
     };
   }
 

@@ -30,6 +30,9 @@ test("candidate funnel, admin authorization, persistence and notification retry"
   for (const value of ["Иван", "89991234567", "25", "нет", "Россия, Москва", "ноутбук", "да", "ничего"]) await message(value);
   const vacancy = Object.keys(VACANCIES)[0];
   await callback(`vacancy:${vacancy}`);
+  await callback("vacancies:back");
+  assert.equal((await bot.loadState(1)).step, "awaiting_vacancy");
+  await callback(`vacancy:${vacancy}`);
   await callback(`application:submit:${vacancy}`);
   await callback(`application:submit:${vacancy}`);
   const { events } = await bot.admin.load();
@@ -39,10 +42,13 @@ test("candidate funnel, admin authorization, persistence and notification retry"
   assert.equal(sent.at(-1).text, "Нет доступа к админке.");
   await message("/application 3");
   assert.equal(sent.at(-1).text, "Нет доступа к админке.");
+  await callback("admin:item:3");
+  assert.equal(sent.at(-1).text, "Нет доступа к админке.");
   await message("/admin", 99, "group");
   assert.equal(sent.at(-1).text, "Нет доступа к админке.");
   await message("/admin", 99);
   assert.match(sent.at(-1).text, /Подано заявок: 1/);
+  assert.equal(sent.at(-1).reply_markup.inline_keyboard[1][0].callback_data, "admin:list:1");
   await message("/application 3", 99);
   assert.match(sent.at(-1).text, /Иван/);
   failAdmin = true;
