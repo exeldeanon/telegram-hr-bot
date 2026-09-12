@@ -1,68 +1,26 @@
 import { createServer } from "node:http";
 import { TelegramHrBot } from "./bot.js";
+import { runPolling } from "./polling.js";
 
-const requiredEnv = [
-  "TELEGRAM_BOT_TOKEN",
-  "TELEGRAM_WEBHOOK_SECRET",
-  "HR_MANAGER_USERNAME",
-  "POLICY_URL",
-  "PERSONAL_DATA_URL",
-];
-
-for (const key of requiredEnv) {
-  if (!process.env[key]) {
-    throw new Error(`Missing required environment variable: ${key}`);
-  }
+for (const key of ["TELEGRAM_BOT_TOKEN", "HR_MANAGER_USERNAME", "POLICY_URL", "PERSONAL_DATA_URL"]) {
+  if (!process.env[key]) throw new Error(`Missing required environment variable: ${key}`);
 }
-
 const bot = new TelegramHrBot(process.env);
+const controller = new AbortController();
 const port = Number(process.env.PORT ?? 3000);
-
-const server = createServer(async (request, response) => {
-  try {
-    const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
-
-    if (request.method === "GET" && url.pathname === "/") {
-      return sendJson(response, 200, { ok: true, service: "telegram-hr-bot" });
-    }
-
-    if (request.method !== "POST" || url.pathname !== "/webhook") {
-      return sendJson(response, 404, { ok: false, error: "not_found" });
-    }
-
-    const secret = request.headers["x-telegram-bot-api-secret-token"];
-
-    if (secret !== process.env.TELEGRAM_WEBHOOK_SECRET) {
-      return sendJson(response, 401, { ok: false, error: "unauthorized" });
-    }
-
-    const update = JSON.parse(await readRequestBody(request));
-    await bot.handleUpdate(update);
-
-    return sendJson(response, 200, { ok: true });
-  } catch (error) {
-    console.error(error);
-    return sendJson(response, 500, { ok: false, error: "internal_error" });
-  }
+const server = createServer((request, response) => {
+  const ok = request.method === "GET" && request.url === "/";
+  response.writeHead(ok ? 200 : 404, { "content-type": "application/json" });
+  response.end(JSON.stringify(ok ? { ok: true, service: "telegram-hr-bot", mode: "polling" } : { ok: false }));
 });
-
+for (const signal of ["SIGTERM", "SIGINT"]) {
+  process.once(signal, () => { controller.abort(); server.close(); });
+}
 server.listen(port, "0.0.0.0", () => {
-  console.log(`Telegram HR bot is listening on port ${port}`);
-});
-
-function readRequestBody(request) {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    request.setEncoding("utf8");
-    request.on("data", (chunk) => {
-      body += chunk;
-    });
-    request.on("end", () => resolve(body));
-    request.on("error", reject);
+  console.log(`Telegram HR bot health server is listening on port ${port}`);
+  runPolling(bot, controller.signal).catch(() => {
+    console.error("Polling stopped unexpectedly");
+    process.exitCode = 1;
+    server.close();
   });
-}
-
-function sendJson(response, statusCode, payload) {
-  response.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
-  response.end(JSON.stringify(payload));
-}
+});

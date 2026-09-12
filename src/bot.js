@@ -24,7 +24,7 @@ const QUESTIONS = {
 export class TelegramHrBot {
   constructor(config) {
     this.config = config;
-    this.storageDir = path.resolve("storage");
+    this.storageDir = path.resolve(config.DATA_DIR || "storage");
   }
 
   async handleUpdate(update) {
@@ -330,13 +330,21 @@ export class TelegramHrBot {
     return this.telegramRequest("sendMessage", payload);
   }
 
-  async telegramRequest(method, payload) {
+  async telegramRequest(method, payload, signal) {
     const response = await fetch(`https://api.telegram.org/bot${this.config.TELEGRAM_BOT_TOKEN}/${method}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(45000)]) : AbortSignal.timeout(45000),
     });
 
-    return response.ok;
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      const error = new Error(`Telegram API ${method} failed`);
+      error.code = data.error_code ?? response.status;
+      error.retryAfter = data.parameters?.retry_after;
+      throw error;
+    }
+    return data.result;
   }
 }
