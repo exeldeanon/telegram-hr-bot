@@ -46,7 +46,7 @@ const server = createServer(async (request, response) => {
   }
 });
 
-server.listen(port, () => {
+server.listen(port, "0.0.0.0", () => {
   console.log(`Telegram HR bot is listening on port ${port}`);
 });
 
