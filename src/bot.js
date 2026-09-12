@@ -75,7 +75,16 @@ export class TelegramHrBot {
     }
 
     if (transition.nextStep === "awaiting_vacancy") {
-      await this.sendMessage(chatId, "HR PRIME · ВАКАНСИИ\n●●●●●●●●  8/8\n\n✨ Знакомство завершено!\nВыберите направление — покажу задачи и условия.", this.vacancyKeyboard());
+      await this.sendMessage(chatId, "HR PRIME · ВЫБОР ПРОФЕССИИ\n\n✨ Приятно познакомиться!\nВыберите направление — покажу задачи и условия. После выбора продолжим анкету.", this.vacancyKeyboard());
+      return;
+    }
+    if (transition.nextStep === "awaiting_submission") {
+      if (!VACANCIES[state.vacancyId]) {
+        await this.saveState(chatId, { ...state, draft: transition.draft, step: "awaiting_vacancy" });
+        await this.sendMessage(chatId, "🧭 Осталось выбрать профессию", this.vacancyKeyboard());
+        return;
+      }
+      await this.sendMessage(chatId, `✅ Анкета заполнена · 8/8\n\nПроверьте данные и подайте заявку.\n\n${this.formatApplication(transition.draft, state.vacancyId)}`, this.submitKeyboard(state.vacancyId));
       return;
     }
 
@@ -100,9 +109,19 @@ export class TelegramHrBot {
     }
     if (data === "vacancies:back") {
       const state = await this.loadState(chatId);
-      if (state.step !== "awaiting_submission") return;
+      if (!["awaiting_submission", "awaiting_vacancy_confirmation"].includes(state.step)) return;
       await this.saveState(chatId, { ...state, step: "awaiting_vacancy" });
       await this.sendMessage(chatId, "🧭 Выберите другое направление", this.vacancyKeyboard());
+      return;
+    }
+    if (data === "application:continue") {
+      const state = await this.loadState(chatId);
+      if (state.step !== "awaiting_vacancy_confirmation" || !VACANCIES[state.vacancyId]) return;
+      const nextStep = this.isCompletedDraft(state.draft) ? "awaiting_submission" : "awaiting_phone";
+      await this.saveState(chatId, { ...state, step: nextStep });
+      await this.sendMessage(chatId, nextStep === "awaiting_submission"
+        ? `✅ Проверьте анкету\n\n${this.formatApplication(state.draft, state.vacancyId)}`
+        : questionCard(QUESTIONS, nextStep), nextStep === "awaiting_submission" ? this.submitKeyboard(state.vacancyId) : undefined);
       return;
     }
 
@@ -126,11 +145,14 @@ export class TelegramHrBot {
       if (state.step !== "awaiting_vacancy") return;
       await this.saveState(chatId, {
         ...state,
-        step: "awaiting_submission",
+        step: "awaiting_vacancy_confirmation",
         draft: state.draft ?? {},
         vacancyId,
       });
-      await this.sendMessage(chatId, VACANCIES[vacancyId].description, this.submitKeyboard(vacancyId));
+      await this.sendMessage(chatId, VACANCIES[vacancyId].description, keyboard(
+        [button("✍️ Продолжить анкету →", "application:continue")],
+        [button("‹ Другие профессии", "vacancies:back")],
+      ));
       return;
     }
 
@@ -176,7 +198,7 @@ export class TelegramHrBot {
   advanceDraft(step, input, draft) {
     switch (step) {
       case "awaiting_name":
-        return this.validateTextStep(input, draft, "name", "awaiting_phone", "имя", 120);
+        return this.validateTextStep(input, draft, "name", "awaiting_vacancy", "имя", 120);
       case "awaiting_phone": {
         const result = this.validatePhone(input);
         return result.ok
@@ -204,7 +226,7 @@ export class TelegramHrBot {
       case "awaiting_employment_status": {
         const result = this.validateEmploymentStatus(input);
         return result.ok
-          ? { ok: true, draft: { ...draft, employmentStatus: result.value }, nextStep: "awaiting_vacancy" }
+          ? { ok: true, draft: { ...draft, employmentStatus: result.value }, nextStep: "awaiting_submission" }
           : result;
       }
       default:
@@ -305,8 +327,9 @@ export class TelegramHrBot {
 
 Помогу познакомиться с вакансиями и подать заявку HR-менеджеру.
 
-✍️ 8 коротких вопросов
+👋 Знакомство и ваше имя
 🧭 Выбор направления
+✍️ Остальные вопросы анкеты
 📨 Подача анкеты
 
 Перед началом ознакомьтесь с документами:
@@ -319,7 +342,7 @@ export class TelegramHrBot {
   helpText() {
     return `🧭 Как подать заявку
 
-Отправьте /start и нажмите «Принимаю · начать». Ответьте на 8 коротких вопросов, выберите вакансию и нажмите «Подать заявку».
+Отправьте /start и нажмите «Принимаю · начать». Укажите имя, выберите профессию и ознакомьтесь с условиями. Нажмите «Продолжить анкету», ответьте на оставшиеся 7 вопросов и нажмите «Подать заявку».
 
 /restart — начать анкету заново
 /help — показать эту подсказку`;
