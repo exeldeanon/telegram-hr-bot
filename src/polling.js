@@ -18,6 +18,7 @@ export async function runPolling(bot, signal) {
         await bot.handleUpdate(update);
         offset = update.update_id + 1;
       }
+      await bot.admin?.flush();
     } catch (error) {
       if (signal.aborted) return;
       // Never log request URLs or tokens.

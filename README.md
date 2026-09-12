@@ -42,3 +42,29 @@ Replace example policy URLs with your actual published documents.
 The old TELEGRAM_WEBHOOK_SECRET variable is ignored and can be removed.
 HTTP port 3000 is only used for health checks; a public-domain 404 does not block polling.
 A polling error 409 indicates another consumer or webhook using the token.
+
+## Telegram admin panel
+
+After redeploying, send `/myid` in a private chat with this bot. Set that numeric
+value as `ADMIN_TELEGRAM_ID` in hosting environment variables and restart.
+Keep `DATA_DIR=/app/data` so statistics, applications and queued notifications survive redeploys.
+Never put a username or bot token in ADMIN_TELEGRAM_ID. Without it admin access is disabled.
+
+- `/admin`: total and today's (Europe/Moscow) unique users who sent /start or /restart,
+  unique users who gave their first valid name answer, and submitted application count.
+- `/applications`: paginated application list; `/applications 2` opens page 2.
+- `/application 3`: full application by its ID from the list.
+- `/myid`: shows the caller's ID, without granting admin access.
+
+Admin commands only work for the configured user in private chat. The admin receives
+start, first-answer and full-submission notifications, including Telegram user ID and
+username when available. Open the bot and send /start first so it can message you.
+Notification errors do not discard applications; pending notifications retry while polling.
+ADMIN_TELEGRAM_ID is the primary recipient; HR_MANAGER_CHAT_ID remains a fallback when no admin is configured.
+Do not run multiple processes on the same storage directory/token.
+
+Statistics start with this update; historical submissions cannot be reconstructed.
+Simply opening the chat is not observable. Repeated /start counts as another notification,
+but not another unique visitor in the same reporting period. Repeated submit presses
+do not add an application; /restart allows a new one. Notification delivery is at-least-once:
+an interruption just after sending can cause a repeated notification with the same event ID.

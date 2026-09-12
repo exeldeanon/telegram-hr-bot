@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { VACANCIES } from "./vacancies.js";
+import { Admin } from "./admin.js";
 
 const CALLBACKS = {
   acceptConsent: "consent:accept",
@@ -25,6 +26,7 @@ export class TelegramHrBot {
   constructor(config) {
     this.config = config;
     this.storageDir = path.resolve(config.DATA_DIR || "storage");
+    this.admin = new Admin(this);
   }
 
   async handleUpdate(update) {
@@ -38,9 +40,13 @@ export class TelegramHrBot {
     const text = String(message?.text ?? "").trim();
 
     if (!chatId || !text) return;
+    if (message.chat.type !== "private" || !message.from) return;
+    if (await this.admin.command(message, text)) return;
 
-    if (text === "/start" || text === "/restart") {
-      await this.saveState(chatId, { step: "awaiting_consent", draft: {} });
+    if (/^\/(start|restart)(?:\s|$)/.test(text)) {
+      const session = `${chatId}-${message.message_id}`;
+      await this.admin.record(`visit-${session}`, "visit", message.from);
+      await this.saveState(chatId, { step: "awaiting_consent", draft: {}, session });
       await this.sendMessage(chatId, this.welcomeText(), this.consentKeyboard());
       return;
     }
@@ -59,9 +65,13 @@ export class TelegramHrBot {
     }
 
     await this.saveState(chatId, {
+      ...state,
       step: transition.nextStep,
       draft: transition.draft,
     });
+    if (state.step === "awaiting_name") {
+      await this.admin.record(`started-${state.session || chatId}`, "started", message.from);
+    }
 
     if (transition.nextStep === "awaiting_vacancy") {
       await this.sendMessage(chatId, "Спасибо! Теперь выберите вакансию:", this.vacancyKeyboard());
@@ -80,10 +90,12 @@ export class TelegramHrBot {
       await this.telegramRequest("answerCallbackQuery", { callback_query_id: callbackId });
     }
 
-    if (!chatId) return;
+    if (!chatId || callback.message.chat.type !== "private" || !callback.from) return;
 
     if (data === CALLBACKS.acceptConsent) {
-      await this.saveState(chatId, { step: "awaiting_name", draft: {} });
+      const state = await this.loadState(chatId);
+      if (state.step !== "awaiting_consent") return;
+      await this.saveState(chatId, { ...state, step: "awaiting_name", draft: {} });
       await this.sendMessage(chatId, QUESTIONS.awaiting_name);
       return;
     }
@@ -97,7 +109,9 @@ export class TelegramHrBot {
       }
 
       const state = await this.loadState(chatId);
+      if (state.step !== "awaiting_vacancy") return;
       await this.saveState(chatId, {
+        ...state,
         step: "awaiting_submission",
         draft: state.draft ?? {},
         vacancyId,
@@ -110,23 +124,29 @@ export class TelegramHrBot {
       const vacancyId = data.slice(CALLBACKS.submitPrefix.length);
       const state = await this.loadState(chatId);
       const draft = state.draft ?? {};
+      if (state.step === "completed") {
+        await this.sendMessage(chatId, "Эта анкета уже подана. Новая анкета: /restart");
+        return;
+      }
 
-      if (!VACANCIES[vacancyId] || !this.isCompletedDraft(draft)) {
+      if (state.step !== "awaiting_submission" || state.vacancyId !== vacancyId || !VACANCIES[vacancyId] || !this.isCompletedDraft(draft)) {
         await this.sendMessage(chatId, "Не хватает данных анкеты. Отправьте /restart и заполните ее заново.");
         return;
       }
 
       const application = this.formatApplication(draft, vacancyId);
-      const sentToManager = await this.sendToManager(application);
+      await this.admin.record(`application-${state.session || chatId}`, "application", callback.from, application);
+      const sentToManager = this.admin.id ? true : await this.sendToManager(application).catch(() => false);
 
       await this.saveState(chatId, {
+        ...state,
         step: "completed",
         draft,
         vacancyId,
       });
 
       if (sentToManager) {
-        await this.sendMessage(chatId, `Анкета отправлена HR-менеджеру. Спасибо!\n\n${application}`);
+        await this.sendMessage(chatId, `Анкета принята. Спасибо!\n\n${application}`);
         return;
       }
 
@@ -325,6 +345,12 @@ export class TelegramHrBot {
   }
 
   async sendMessage(chatId, text, replyMarkup) {
+    if (text.length > 3500) {
+      for (let index = 0; index < text.length; index += 3500) {
+        await this.sendMessage(chatId, text.slice(index, index + 3500), index + 3500 >= text.length ? replyMarkup : undefined);
+      }
+      return true;
+    }
     const payload = { chat_id: chatId, text };
     if (replyMarkup) payload.reply_markup = replyMarkup;
     return this.telegramRequest("sendMessage", payload);
