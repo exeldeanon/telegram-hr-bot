@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { VACANCIES } from "./vacancies.js";
 import { Admin } from "./admin.js";
+import { Training } from "./training.js";
 import { button, keyboard, questionCard, vacancyLabels } from "./ui.js";
 
 const CALLBACKS = {
@@ -28,6 +29,8 @@ export class TelegramHrBot {
     this.config = config;
     this.storageDir = path.resolve(config.DATA_DIR || "storage");
     this.admin = new Admin(this);
+    this.training = new Training(this);
+    this.queue = Promise.resolve();
   }
 
   async handleUpdate(update) {
@@ -43,6 +46,10 @@ export class TelegramHrBot {
     if (!chatId || !text) return;
     if (message.chat.type !== "private" || !message.from) return;
     if (await this.admin.command(message, text)) return;
+    if (text === '/training' || text === '/app') {
+      await this.sendMessage(chatId, '🎓 HR PRIME · Обучение\nУроки назначает менеджер после рассмотрения заявки. Выданные материалы и тесты приходят в этот чат.', this.miniAppKeyboard());
+      return;
+    }
 
     if (/^\/(start|restart)(?:\s|$)/.test(text)) {
       const session = `${chatId}-${message.message_id}`;
@@ -101,7 +108,13 @@ export class TelegramHrBot {
     }
 
     if (!chatId || callback.message.chat.type !== "private" || !callback.from) return;
+    if (data.startsWith('learn:')) {
+      try { await this.training.callback(callback); }
+      catch (error) { if (!error.status) throw error; await this.sendMessage(chatId, error.message); }
+      return;
+    }
     if (data.startsWith("admin:")) {
+      if (await this.admin.action(callback)) return;
       const parts = data.split(":");
       const command = parts[1] === "list" ? `/applications ${parts[2] || 1}` : parts[1] === "item" ? `/application ${parts[2]}` : "/admin";
       await this.admin.command({ chat: callback.message.chat, from: callback.from }, command);
@@ -171,7 +184,7 @@ export class TelegramHrBot {
       }
 
       const application = this.formatApplication(draft, vacancyId);
-      await this.admin.record(`application-${state.session || chatId}`, "application", callback.from, application);
+      await this.admin.record(`application-${state.session || chatId}`, "application", callback.from, application, { vacancyId, draft, status: 'filled', statusAt: Date.now() });
       const sentToManager = this.admin.id ? true : await this.sendToManager(application).catch(() => false);
 
       await this.saveState(chatId, {
@@ -391,6 +404,29 @@ export class TelegramHrBot {
   async sendToManager(text) {
     if (!this.config.HR_MANAGER_CHAT_ID) return false;
     return this.sendMessage(this.config.HR_MANAGER_CHAT_ID, text);
+  }
+
+  exclusive(fn) {
+    const next = this.queue.then(fn);
+    this.queue = next.catch(() => {});
+    return next;
+  }
+
+  miniAppKeyboard() {
+    const url = this.config.MINI_APP_URL;
+    return url?.startsWith('https://') ? keyboard([{ text: '✨ Открыть HR Prime', web_app: { url } }]) : undefined;
+  }
+
+  async sendDocument(chatId, course, day, caption, replyMarkup) {
+    const bytes = await readFile(new URL(`../materials/${course}/day${day}.pdf`, import.meta.url));
+    const form = new FormData();
+    form.set('chat_id', String(chatId)); form.set('caption', caption);
+    form.set('document', new Blob([bytes], { type: 'application/pdf' }), `${course}-day${day}.pdf`);
+    if (replyMarkup) form.set('reply_markup', JSON.stringify(replyMarkup));
+    const response = await fetch(`https://api.telegram.org/bot${this.config.TELEGRAM_BOT_TOKEN}/sendDocument`, { method: 'POST', body: form, signal: AbortSignal.timeout(45000) });
+    const data = await response.json();
+    if (!data.ok) throw Object.assign(new Error('Document delivery failed'), { code: data.error_code, retryAfter: data.parameters?.retry_after });
+    return data.result;
   }
 
   async sendMessage(chatId, text, replyMarkup) {

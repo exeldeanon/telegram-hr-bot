@@ -15,10 +15,12 @@ export async function runPolling(bot, signal) {
       }, signal);
       for (const update of updates) {
         if (signal.aborted) return;
-        await bot.handleUpdate(update);
+        if (bot.exclusive) await bot.exclusive(() => bot.handleUpdate(update));
+        else await bot.handleUpdate(update);
         offset = update.update_id + 1;
       }
-      await bot.admin?.flush();
+      const maintenance = async () => { await bot.training?.tick(); await bot.admin?.flush(); };
+      if (bot.exclusive) await bot.exclusive(maintenance); else await maintenance();
     } catch (error) {
       if (signal.aborted) return;
       // Never log request URLs or tokens.

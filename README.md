@@ -68,3 +68,48 @@ Simply opening the chat is not observable. Repeated /start counts as another not
 but not another unique visitor in the same reporting period. Repeated submit presses
 do not add an application; /restart allows a new one. Notification delivery is at-least-once:
 an interruption just after sending can cause a repeated notification with the same event ID.
+
+## Mini App, lead statuses and daily training
+
+1. Redeploy the current main branch. Keep one process, PORT=3000 and persistent DATA_DIR=/app/data.
+2. Configure ADMIN_TELEGRAM_ID as before. Open /admin → applications → application.
+3. Each application has statuses: Заполнил анкету (default), Слетел, Холд, Выплачено.
+   The card shows username (if available), Telegram ID, application age and current hold duration.
+   Выплачено is a bookkeeping label only: it does not initiate any payment.
+4. Click Отправить на обучение. The course is selected from the application's vacancy.
+   Legacy applications infer the vacancy from their saved text. Repeated assignment does not reset progress.
+5. The first PDF is delivered on the next polling maintenance pass (normally within 30 seconds).
+   Later PDFs arrive no sooner than 24 hours after the previous successful delivery.
+   After downtime, only the next lesson is sent, not a burst of missed days. There are five days.
+   Холд and Слетел pause new lessons; change back to Заполнил анкету to resume.
+   Already delivered lessons remain accessible. A new day does not require passing the prior test.
+6. Ознакомился opens three questions; two correct answers pass the day. Failed tests can be retried.
+   All five daily tests must pass to complete the course. Results are sent to the administrator.
+   Daily delivery state, attempts and pending admin messages persist in admin.json inside DATA_DIR.
+
+For the visual Mini App, the SAME Node server serves /app and authenticated /api/* endpoints.
+It needs a publicly reachable HTTPS reverse proxy to port 3000, even though Telegram updates use polling.
+The previously broken BotHost public domain must be repaired by hosting support or the server hosted
+on another Node hosting service with HTTPS. A 404 from the hosting proxy cannot be fixed by setting an env var.
+Once https://YOUR-DOMAIN/app loads, set MINI_APP_URL=https://YOUR-DOMAIN/app and restart.
+Open /app in the bot or /admin, then click Открыть HR Prime. A normal browser does not have Telegram
+authorization; the public landing screen intentionally contains no candidate data.
+
+Authentication validates Telegram Mini App initData HMAC and a one-hour expiry on the server.
+Only ADMIN_TELEGRAM_ID can change statuses or assign courses. Candidates see only their own
+applications, delivered lessons and tests. Quiz answer keys stay server-side until a test is submitted.
+There is no demo login or bypass in production. Refreshing a stale session requires reopening the Mini App.
+
+Materials: 20 original user-provided PDFs, preserved byte-for-byte in materials/; their extracted text
+is in src/courses.json for reading within the Mini App. No Python is needed on the hosting server.
+src/quizzes.js contains 60 authored questions with explanations, three per supplied lesson.
+Lessons contain illustrative/unverified financial terms and some unsafe advice; a visible notice
+clarifies that current employer policies govern work and passwords/PIN/CVV/SMS codes must not be shared.
+Tests assess stable concepts and do not endorse outdated rates, guaranteed earnings or unsafe instructions.
+Banking-security reference: https://www.cbr.ru/information_security/pmp/
+Telegram authentication reference: https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
+
+Validation: npm test. Optional browser regression: node scripts/check-miniapp.mjs PATH_TO_PLAYWRIGHT.
+The browser check uses a temporary database and fake signed Telegram identities, never real candidates.
+No system cron or external scheduler is required. The bot must remain running for timely daily delivery.
+PDF delivery is at-least-once: a crash between send and persistence can resend that day's material.

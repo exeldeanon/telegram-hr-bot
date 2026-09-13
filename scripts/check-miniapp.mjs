@@ -1,0 +1,53 @@
+import { createRequire } from 'node:module';
+import { createServer } from 'node:http';
+import { createHmac } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import { TelegramHrBot } from '../src/bot.js';
+import { miniAppHandler } from '../src/miniapp.js';
+import { QUIZZES } from '../src/quizzes.js';
+const require = createRequire(import.meta.url);
+const { chromium } = require(process.argv[2] || 'playwright');
+const dir = await mkdtemp(path.join(tmpdir(), 'hr-visual-'));
+const bot = new TelegramHrBot({ DATA_DIR: dir, TELEGRAM_BOT_TOKEN: 'fake', ADMIN_TELEGRAM_ID: '99' });
+bot.sendMessage = bot.sendDocument = async () => true;
+const app = await bot.admin.record('demo', 'application', { id: 1, username: 'candidate_demo' }, '📄 Анкета кандидата\nВакансия: Оператор чата\n\nИмя: Анна\nВозраст: 24\nОпыт работы: поддержка клиентов\nГород: Москва', { vacancyId: 'chat_operator', status: 'filled' });
+const handler = miniAppHandler(bot);
+const server = createServer(async (req, res) => { if (!await handler(req, res)) { res.writeHead(404); res.end(); } });
+await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+const browser = await chromium.launch({ headless: true });
+try {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  let userId = 99;
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.route('https://telegram.org/js/telegram-web-app.js', async (route) => {
+    const p = new URLSearchParams({ auth_date: String(Math.floor(Date.now() / 1000)), user: JSON.stringify({ id: userId }) });
+    const check = [...p].sort(([a], [b]) => a < b ? -1 : 1).map(([k, v]) => `${k}=${v}`).join('\n');
+    const secret = createHmac('sha256', 'WebAppData').update('fake').digest();
+    p.set('hash', createHmac('sha256', secret).update(check).digest('hex'));
+    await route.fulfill({ contentType: 'text/javascript', body: `window.Telegram={WebApp:{initData:${JSON.stringify(p.toString())},ready(){},expand(){}}};` });
+  });
+  const url = `http://127.0.0.1:${server.address().port}/app`;
+  await page.goto(url); await page.getByText('Открыть карточку ↗').waitFor();
+  await page.screenshot({ path: path.join(tmpdir(), 'hr-miniapp-admin.png'), fullPage: true });
+  await page.getByText('Открыть карточку ↗').click();
+  await page.getByRole('button', { name: '🎓 Отправить на обучение' }).click();
+  await page.getByText('0/5 зачтено', { exact: false }).waitFor();
+  await bot.training.tick();
+  userId = 1; await page.reload(); await page.getByText('Мои уроки →').click();
+  await page.screenshot({ path: path.join(tmpdir(), 'hr-miniapp-course.png'), fullPage: true });
+  await page.getByText('Открыть урок →').click();
+  await page.getByRole('button', { name: '✓ Ознакомился · перейти к тесту' }).click();
+  await page.getByText('Проверим знания').waitFor();
+  for (let i = 0; i < 3; i++) await page.locator(`input[name=q${i}][value="${QUIZZES.chat_operator[0][i].answer}"]`).check();
+  await page.getByRole('button', { name: 'Завершить тест →' }).click();
+  await page.getByText('Отличная работа! · 3/3').waitFor();
+  assert.equal((await bot.training.get(app.id)).event.training.days[0].result.score, 3);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  assert.deepEqual(errors, []);
+  console.log('Mobile admin enrollment, candidate lesson, acknowledgement and quiz submission passed.');
+} finally {
+  await browser.close(); server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); await rm(dir, { recursive: true, force: true });
+}

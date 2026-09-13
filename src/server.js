@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { TelegramHrBot } from "./bot.js";
 import { runPolling } from "./polling.js";
+import { miniAppHandler } from './miniapp.js';
 
 for (const key of ["TELEGRAM_BOT_TOKEN", "HR_MANAGER_USERNAME", "POLICY_URL", "PERSONAL_DATA_URL"]) {
   if (!process.env[key]) throw new Error(`Missing required environment variable: ${key}`);
@@ -8,7 +9,9 @@ for (const key of ["TELEGRAM_BOT_TOKEN", "HR_MANAGER_USERNAME", "POLICY_URL", "P
 const bot = new TelegramHrBot(process.env);
 const controller = new AbortController();
 const port = Number(process.env.PORT ?? 3000);
-const server = createServer((request, response) => {
+const handleMiniApp = miniAppHandler(bot);
+const server = createServer(async (request, response) => {
+  if (await handleMiniApp(request, response)) return;
   const ok = request.method === "GET" && request.url === "/";
   response.writeHead(ok ? 200 : 404, { "content-type": "application/json" });
   response.end(JSON.stringify(ok ? { ok: true, service: "telegram-hr-bot", mode: "polling" } : { ok: false }));
