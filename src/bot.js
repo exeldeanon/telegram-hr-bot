@@ -185,6 +185,11 @@ export class TelegramHrBot {
 
       const application = this.formatApplication(draft, vacancyId);
       await this.admin.record(`application-${state.session || chatId}`, "application", callback.from, application, { vacancyId, draft, status: 'filled', statusAt: Date.now() });
+      try {
+        await this.syncApplication(chatId, callback.from, state, draft, vacancyId, application);
+      } catch (error) {
+        console.error("CRM sync failed:", error?.message || error);
+      }
       const sentToManager = this.admin.id ? true : await this.sendToManager(application).catch(() => false);
 
       await this.saveState(chatId, {
@@ -404,6 +409,26 @@ export class TelegramHrBot {
   async sendToManager(text) {
     if (!this.config.HR_MANAGER_CHAT_ID) return false;
     return this.sendMessage(this.config.HR_MANAGER_CHAT_ID, text);
+  }
+
+  async syncApplication(chatId, user, state, draft, vacancyId, application) {
+    const url = String(this.config.CRM_SYNC_URL || "").trim();
+    const secret = String(this.config.CRM_SYNC_SECRET || "").trim();
+    if (!url || !secret) return false;
+    const sourceUpdateId = Number.parseInt(`${chatId}${String(state.session || "").replace(/\D/g, "")}`.slice(-15), 10);
+    const payload = {
+      sourceUpdateId: Number.isSafeInteger(sourceUpdateId) ? sourceUpdateId : Math.abs(Number(chatId)),
+      flowId: state.session || `chat-${chatId}`,
+      chatId: String(chatId), telegramUserId: String(user?.id || chatId),
+      telegramUsername: user?.username || null, ...draft,
+      onlineReady: draft.onlineReadiness, vacancyId, rawPayload: { application },
+    };
+    const response = await fetch(url, {
+      method: "POST", headers: { "content-type": "application/json", "x-crm-sync-secret": secret },
+      body: JSON.stringify(payload), signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) throw new Error(`CRM endpoint returned ${response.status}`);
+    return true;
   }
 
   exclusive(fn) {
