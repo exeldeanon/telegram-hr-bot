@@ -12,6 +12,7 @@ test("candidate funnel, admin authorization, persistence and notification retry"
   const config = { DATA_DIR: dir, ADMIN_TELEGRAM_ID: "99" };
   const bot = new TelegramHrBot(config);
   const sent = [];
+  bot.sendPhoto = (chatId, text, replyMarkup) => bot.sendMessage(chatId, text, replyMarkup);
   let failAdmin = false;
   bot.telegramRequest = async (method, payload) => {
     if (failAdmin && String(payload.chat_id) === "99") throw Object.assign(new Error("blocked"), { code: 403 });
@@ -26,6 +27,7 @@ test("candidate funnel, admin authorization, persistence and notification retry"
     id: String(++messageId), data, from: { id: 1 }, message: { chat: { id: 1, type: "private" } },
   } });
   await message("/start source");
+  await callback("menu:apply");
   await callback("consent:accept");
   await message("Иван");
   assert.equal((await bot.loadState(1)).step, "awaiting_vacancy");

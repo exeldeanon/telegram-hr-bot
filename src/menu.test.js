@@ -1,0 +1,96 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { TelegramHrBot } from './bot.js';
+import { homeKeyboard, homeText, infoPages } from './menu.js';
+import { VACANCIES } from './vacancies.js';
+
+async function fixture(t) {
+  const dir = await mkdtemp(path.join(tmpdir(), 'uphire-menu-test-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const bot = new TelegramHrBot({ DATA_DIR: dir, HR_MANAGER_USERNAME: 'UpHireManager', POLICY_URL: 'https://example.test/privacy', PERSONAL_DATA_URL: 'https://example.test/consent' });
+  const sent = []; let id = 0;
+  bot.telegramRequest = async (method, payload) => { sent.push({ method, ...payload }); return { message_id: 100 }; };
+  bot.sendPhoto = async (chatId, caption, reply_markup) => { sent.push({ method: 'sendPhoto', chat_id: chatId, caption, reply_markup }); return { message_id: 100 }; };
+  const message = text => bot.handleUpdate({ message: { message_id: ++id, text, from: { id: 1 }, chat: { id: 1, type: 'private' } } });
+  const click = (data, photo = false) => bot.handleUpdate({ callback_query: { id: String(++id), data, from: { id: 1 }, message: { message_id: 100, chat: { id: 1, type: 'private' }, ...(photo ? { photo: [{}] } : {}) } } });
+  return { bot, sent, message, click };
+}
+
+test('start offers branded menu; navigation leaves drafts intact', async t => {
+  const { bot, sent, message, click } = await fixture(t);
+  const state = { step: 'awaiting_phone', draft: { name: 'Анна' }, vacancyId: 'chat_operator', session: 'preserve' };
+  await bot.saveState(1, state);
+  await message('/start source'); assert.equal(sent.at(-1).method, 'sendPhoto');
+  assert.deepEqual(await bot.loadState(1), state);
+  const buttons = sent.at(-1).reply_markup.inline_keyboard.flat();
+  assert.ok(buttons.some(b => b.url === 'https://up-hire.ru'));
+  for (const page of ['about', 'how', 'faq', 'vacancies', 'manager', 'training', 'home']) {
+    await click(`menu:${page}`, true);
+    assert.deepEqual(await bot.loadState(1), state);
+    assert.ok(sent.at(-1).reply_markup.inline_keyboard.flat().length);
+  }
+  await click('menu:apply:insurance_agent'); assert.deepEqual(await bot.loadState(1), state);
+  await click('menu:application'); assert.match(sent.at(-1).text, /номер телефона/);
+  await message('/restart'); assert.deepEqual(await bot.loadState(1), state);
+  await click('menu:reset:confirm'); assert.equal((await bot.loadState(1)).step, 'awaiting_consent');
+  assert.deepEqual((await bot.loadState(1)).draft, {});
+});
+
+test('vacancy-first application still requires consent and reaches durable submission', async t => {
+  const { bot, sent, message, click } = await fixture(t);
+  await message('/start'); assert.equal((await bot.loadState(1)).step, 'idle');
+  await click('menu:job:chat_operator', true); assert.match(sent.at(-1).caption || sent.at(-1).text, /Оператор чата/);
+  await click('menu:apply:chat_operator'); assert.equal((await bot.loadState(1)).step, 'awaiting_consent');
+  await message('Анна'); assert.equal((await bot.loadState(1)).step, 'awaiting_consent');
+  await click('consent:accept'); await message('Анна');
+  assert.equal((await bot.loadState(1)).step, 'awaiting_vacancy_confirmation');
+  await click('application:continue');
+  for (const text of ['89991234567', '25', 'нет', 'Москва', 'ПК', 'да', 'ничего']) await message(text);
+  assert.equal((await bot.loadState(1)).step, 'awaiting_submission');
+  await click('application:submit:chat_operator');
+  await click('menu:application'); assert.match(sent.at(-1).text, /анкета сохранена/);
+  await message('/start'); assert.equal((await bot.loadState(1)).step, 'completed');
+  assert.equal((await bot.admin.load()).events.filter(e => e.type === 'application').length, 1);
+});
+
+test('buttons meet Telegram limits; invalid manager has safe fallback', async t => {
+  const { bot, sent, click } = await fixture(t);
+  assert.ok(homeText.length <= 1024);
+  for (const text of Object.values(infoPages)) assert.ok(text.length <= 1024);
+  for (const row of homeKeyboard().inline_keyboard) for (const b of row) if (b.callback_data) assert.ok(Buffer.byteLength(b.callback_data) <= 64);
+  for (const id of Object.keys(VACANCIES)) assert.ok(Buffer.byteLength(`menu:apply:${id}`) <= 64);
+  bot.config.HR_MANAGER_USERNAME = 'bad/path'; await click('menu:manager');
+  assert.equal(sent.at(-1).reply_markup.inline_keyboard[0][0].url, 'https://up-hire.ru');
+  await click('menu:job:unknown'); assert.match(sent.at(-1).text, /нет в каталоге/);
+});
+
+test('logo is uploaded as multipart; image failure falls back to usable menu', async t => {
+  const { bot, sent } = await fixture(t);
+  const logo = await readFile(new URL('../assets/uphire-logo.jpg', import.meta.url));
+  assert.ok(logo.length > 1000); assert.equal(logo[0], 255); assert.equal(logo[1], 216);
+  bot.sendPhoto = TelegramHrBot.prototype.sendPhoto;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.ok(url.endsWith('/sendPhoto')); assert.ok(options.body instanceof FormData);
+    assert.equal(options.body.get('photo').type, 'image/jpeg');
+    assert.equal(options.body.get('caption'), homeText);
+    return { ok: true, json: async () => ({ ok: true, result: { message_id: 3 } }) };
+  });
+  assert.equal((await bot.sendWelcome(1)).message_id, 3);
+  bot.sendPhoto = async () => { throw Object.assign(new Error('test'), { code: 400 }); };
+  await bot.sendWelcome(1); assert.equal(sent.at(-1).method, 'sendMessage'); assert.equal(sent.at(-1).text, homeText);
+});
+
+test('unmodified panel is harmless and long photo caption becomes a text panel', async t => {
+  const { bot, sent, click } = await fixture(t);
+  const original = bot.telegramRequest;
+  bot.telegramRequest = async (method, payload) => {
+    if (method.startsWith('edit')) throw Object.assign(new Error('unchanged'), { code: 400, notModified: true });
+    return original(method, payload);
+  };
+  await click('menu:home'); assert.equal(sent.at(-1).method, 'answerCallbackQuery');
+  await bot.showPanel({ message: { chat: { id: 1 }, message_id: 100, photo: [{}] } }, 'x'.repeat(1200), homeKeyboard());
+  assert.equal(sent.at(-1).method, 'sendMessage');
+});

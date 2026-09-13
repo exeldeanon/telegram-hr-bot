@@ -3,6 +3,20 @@
 Standalone Node.js Telegram long-polling bot for UpHire candidate applications.
 No public domain or webhook secret is required.
 
+## UpHire start menu
+
+`/start` and `/menu` show the supplied UpHire logo and an inline panel:
+vacancies, about, manager contact, website, application, FAQ, process and training.
+Navigation edits its panel when possible and never resets application answers.
+Browse vacancies before consent; applying still requires the existing consent step.
+`/restart` now asks for confirmation before replacing a draft; submitted applications,
+training progress and the CRM outbox remain unchanged. Manager contact uses the
+existing `HR_MANAGER_USERNAME`; the website is https://up-hire.ru.
+
+Logo: `assets/uphire-logo.jpg` (user-supplied, unchanged). Image delivery falls back
+to the same usable text menu if Telegram rejects or cannot load the photo.
+Run `npm test` for the full funnel, menu, upload, persistence, training and CRM tests.
+
 ## Hosting settings
 
 - Language: Node.js
