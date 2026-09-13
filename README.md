@@ -31,7 +31,7 @@ Set these in the hosting panel:
 
 ```env
 TELEGRAM_BOT_TOKEN=123456789:replace_me
-HR_MANAGER_USERNAME=hrinformhr
+HR_MANAGER_USERNAME=UpHireManager1
 HR_MANAGER_CHAT_ID=
 POLICY_URL=https://example.com/privacy
 PERSONAL_DATA_URL=https://example.com/personal-data
