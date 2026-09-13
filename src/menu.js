@@ -41,7 +41,10 @@ export async function handleMenu(bot, callback) {
     const valid = /^[A-Za-z0-9_]{5,32}$/.test(username);
     await bot.showBanner(callback, 'manager', `💬 Давайте обсудим ваш вопрос\n\nПо выбору вакансии, условиям и анкете можно написать менеджеру.${valid ? '\n\nПредставьтесь и укажите интересующее направление — так будет проще помочь.' : '\n\nПрямой контакт пока не указан. Выберите вакансию или проверьте контакты на нашем сайте.'}`,
       keyboard(...(valid ? [[{ text: '💬 Написать менеджеру', url: `https://t.me/${username}` }]] : [[{ text: '↗ Контакты на сайте', url: WEBSITE }]]), [button('✍️ Моя анкета', 'menu:application'), backHome()]));
-  } else if (page === 'training') await bot.showBanner(callback, 'training', '🎓 Обучение в UpHire\n\nМатериалы и тесты назначает менеджер после рассмотрения заявки. Они приходят прямо в этот чат.\n\nЕсли обучение уже назначено, откройте сообщения с уроками и продолжите с того места, где остановились. Если материалы ещё не пришли — уточните следующий шаг у менеджера.', keyboard(...(bot.miniAppKeyboard()?.inline_keyboard || []), [button('💬 Связаться с менеджером', 'menu:manager'), backHome()]));
+  } else if (page === 'training') {
+    const dashboard = await bot.training.dashboard(callback.from.id);
+    await bot.showBanner(callback, 'training', dashboard.text, dashboard.markup);
+  }
   else if (page === 'application') await bot.resumeApplication(chatId, callback);
   else if (page === 'apply') await bot.showBanner(callback, 'vacancies', '💼 Сначала выберите вакансию\n\nАнкета привязывается к конкретному направлению. Откройте карточку, изучите условия и нажмите «Откликнуться».', catalogKeyboard());
   else if (page.startsWith('apply:')) await bot.beginApplication(callback, page.slice(6));

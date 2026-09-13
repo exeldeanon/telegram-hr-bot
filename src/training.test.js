@@ -79,6 +79,28 @@ test('quiz access, acknowledgement, grading, stale attempts and completion', asy
   await bot.training.submit(app.id, 4, 1, QUIZZES.chat_operator[4].map((q) => q.answer), 0);
   assert.equal((await bot.admin.load()).events.length, count);
 });
+test('candidate dashboard shows progress and restores current material and test', async (t) => {
+  const { bot, app } = await fixture(t);
+  const documents = []; bot.sendDocument = async (...args) => { documents.push(args); return { message_id: 20 }; };
+  assert.match((await bot.training.dashboard(1)).text, /обучение ещё не назначено/);
+  await bot.training.enroll(app.id); await bot.training.tick();
+  let dashboard = await bot.training.dashboard(1);
+  assert.match(dashboard.text, /Сейчас: день 1 из 5/);
+  assert.match(dashboard.text, /Сдано тестов: 0/);
+  assert.ok(dashboard.markup.inline_keyboard.flat().some(item => item.callback_data?.startsWith('learn:resend:')));
+  await bot.training.read(app.id, 0, 1);
+  const wrong = QUIZZES.chat_operator[0].map((question) => (question.answer + 1) % 3);
+  await bot.training.submit(app.id, 0, 1, wrong, 0);
+  dashboard = await bot.training.dashboard(1);
+  assert.match(dashboard.text, /попыток: 1/);
+  await bot.training.retry(app.id, 0, 1);
+  await bot.training.submit(app.id, 0, 1, QUIZZES.chat_operator[0].map((question) => question.answer), 1);
+  dashboard = await bot.training.dashboard(1);
+  assert.match(dashboard.text, /сдан с 2-й попытки/);
+  await bot.training.resend(app.id, 0, 1);
+  assert.equal(documents.length, 2);
+  await assert.rejects(bot.training.resend(app.id, 0, 2), { status: 403 });
+});
 test('Telegram signature rejects spoofed, expired and duplicate fields', () => {
   const good = signed(99); assert.equal(verifyInitData(good, 'test-token').id, 99);
   assert.throws(() => verifyInitData(good, 'other-token'));

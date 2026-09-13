@@ -8,6 +8,9 @@ No public domain or webhook secret is required.
 `/start` and `/menu` show the supplied UpHire logo and an inline panel:
 vacancies, about, manager contact, website, application, FAQ, process and training.
 Navigation edits its panel when possible and never resets application answers.
+Candidate input and the previous active bot card are removed after each step, so the
+private chat stays as a single clean interface. Messages from older releases whose IDs
+were never stored cannot be discovered or deleted safely; all new screens are tracked.
 Browse vacancies before consent; applying still requires the existing consent step.
 `/restart` now asks for confirmation before replacing a draft; submitted applications,
 training progress and the CRM outbox remain unchanged. Manager contact uses the
@@ -98,6 +101,9 @@ an interruption just after sending can cause a repeated notification with the sa
    Холд and Слетел pause new lessons; change back to Заполнил анкету to resume.
    Already delivered lessons remain accessible. A new day does not require passing the prior test.
 6. Ознакомился opens three questions; two correct answers pass the day. Failed tests can be retried.
+7. «Моё обучение» shows the candidate's current day, passed and attempted tests,
+   total attempts and the passing attempt for every completed day. The current PDF can
+   be downloaded again, and an interrupted or failed test can be resumed from the panel.
    All five daily tests must pass to complete the course. Results are sent to the administrator.
    Daily delivery state, attempts and pending admin messages persist in admin.json inside DATA_DIR.
 

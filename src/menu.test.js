@@ -61,7 +61,7 @@ test('vacancy-first application still requires consent and reaches durable submi
   assert.equal((await bot.loadState(1)).step, 'awaiting_submission');
   await click('application:submit:chat_operator');
   await click('menu:application'); assert.match(sent.at(-1).text, /Анкета кандидата/);
-  assert.equal(sent.at(-2).asset, 'application');
+  assert.ok(sent.some(item => item.asset === 'application'));
   await message('/start'); assert.equal((await bot.loadState(1)).step, 'completed');
   assert.equal((await bot.admin.load()).events.filter(e => e.type === 'application').length, 1);
 });
@@ -102,4 +102,13 @@ test('unmodified panel is harmless and long photo caption becomes a text panel',
   await click('menu:home', true); assert.equal(sent.at(-1).method, 'answerCallbackQuery');
   await bot.showPanel({ message: { chat: { id: 1 }, message_id: 100, photo: [{}] } }, 'x'.repeat(1200), homeKeyboard());
   assert.equal(sent.at(-1).method, 'sendMessage');
+});
+
+test('candidate UI deletes typed input and replaces the previous active message', async t => {
+  const { bot, sent } = await fixture(t);
+  await bot.withCandidateUi(1, 10, () => bot.sendMessage(1, 'Первый экран'));
+  await bot.withCandidateUi(1, 11, () => bot.sendMessage(1, 'Второй экран'));
+  const deleted = sent.filter(item => item.method === 'deleteMessage').map(item => item.message_id);
+  assert.deepEqual(deleted, [10, 11, 100]);
+  assert.equal(sent.at(-1).text, 'Второй экран');
 });

@@ -32,6 +32,7 @@ export class TelegramHrBot {
     this.admin = new Admin(this);
     this.training = new Training(this);
     this.queue = Promise.resolve();
+    this.uiChatId = null;
   }
 
   async handleUpdate(update) {
@@ -47,8 +48,14 @@ export class TelegramHrBot {
     if (!chatId || !text) return;
     if (message.chat.type !== "private" || !message.from) return;
     if (await this.admin.command(message, text)) return;
+    return this.withCandidateUi(chatId, message.message_id, () => this.handleCandidateMessage(message, text));
+  }
+
+  async handleCandidateMessage(message, text) {
+    const chatId = message.chat.id;
     if (text === '/training' || text === '/app') {
-      await this.sendMessage(chatId, '🎓 UpHire · Обучение\nУроки назначает менеджер после рассмотрения заявки. Выданные материалы и тесты приходят в этот чат.', this.miniAppKeyboard());
+      const dashboard = await this.training.dashboard(message.from.id);
+      await this.sendPhoto(chatId, dashboard.text, dashboard.markup, 'training');
       return;
     }
 
@@ -118,17 +125,22 @@ export class TelegramHrBot {
     }
 
     if (!chatId || callback.message.chat.type !== "private" || !callback.from) return;
-    if (await handleMenu(this, callback)) return;
-    if (data.startsWith('learn:')) {
-      try { await this.training.callback(callback); }
-      catch (error) { if (!error.status) throw error; await this.sendMessage(chatId, error.message); }
-      return;
-    }
     if (data.startsWith("admin:")) {
       if (await this.admin.action(callback)) return;
       const parts = data.split(":");
       const command = parts[1] === "list" ? `/applications ${parts[2] || 1}` : parts[1] === "item" ? `/application ${parts[2]}` : "/admin";
       await this.admin.command({ chat: callback.message.chat, from: callback.from }, command);
+      return;
+    }
+    return this.withCandidateUi(chatId, null, () => this.handleCandidateCallback(callback, data));
+  }
+
+  async handleCandidateCallback(callback, data) {
+    const chatId = callback.message.chat.id;
+    if (await handleMenu(this, callback)) return;
+    if (data.startsWith('learn:')) {
+      try { await this.training.callback(callback); }
+      catch (error) { if (!error.status) throw error; await this.sendMessage(chatId, error.message, keyboard([button('📊 Моя статистика', 'menu:training')], [backHome()])); }
       return;
     }
     if (data === "vacancies:back") {
@@ -265,6 +277,10 @@ export class TelegramHrBot {
 
   async showPanel(callback, text, replyMarkup) {
     const message = callback.message;
+    if (this.isCandidateUi(message.chat.id) && message.message_id) {
+      await this.prepareUiMessage(message.chat.id, message.message_id);
+      await this.rememberUiMessage(message.chat.id, message.message_id);
+    }
     if (message.message_id && (!message.photo || text.length <= 1024)) {
       const method = message.photo ? 'editMessageCaption' : 'editMessageText';
       try {
@@ -279,6 +295,10 @@ export class TelegramHrBot {
 
   async showBanner(callback, asset, text, replyMarkup) {
     const message = callback.message;
+    if (this.isCandidateUi(message.chat.id) && message.message_id) {
+      await this.prepareUiMessage(message.chat.id, message.message_id);
+      await this.rememberUiMessage(message.chat.id, message.message_id);
+    }
     if (text.length > 1024) return this.showPanel(callback, text, replyMarkup);
     if (message.photo && message.message_id) {
       try { return await this.editPhoto(message.chat.id, message.message_id, asset, text, replyMarkup); }
@@ -304,6 +324,8 @@ export class TelegramHrBot {
   }
 
   async sendPhoto(chatId, caption, replyMarkup, asset = 'home') {
+    const clean = this.isCandidateUi(chatId);
+    if (clean) await this.prepareUiMessage(chatId);
     const { bytes, filename } = await this.banner(asset);
     const form = new FormData();
     form.set('chat_id', String(chatId)); form.set('caption', caption);
@@ -312,10 +334,16 @@ export class TelegramHrBot {
     const response = await fetch(`https://api.telegram.org/bot${this.config.TELEGRAM_BOT_TOKEN}/sendPhoto`, { method: 'POST', body: form, signal: AbortSignal.timeout(45000) });
     const data = await response.json();
     if (!response.ok || !data.ok) throw this.telegramMediaError(data, response.status);
+    if (clean) await this.rememberUiMessage(chatId, data.result?.message_id);
     return data.result;
   }
 
   async editPhoto(chatId, messageId, asset, caption, replyMarkup) {
+    const clean = this.isCandidateUi(chatId);
+    if (clean) {
+      await this.prepareUiMessage(chatId, messageId);
+      await this.rememberUiMessage(chatId, messageId);
+    }
     const { bytes, filename } = await this.banner(asset);
     const form = new FormData();
     form.set('chat_id', String(chatId)); form.set('message_id', String(messageId));
@@ -325,6 +353,7 @@ export class TelegramHrBot {
     const response = await fetch(`https://api.telegram.org/bot${this.config.TELEGRAM_BOT_TOKEN}/editMessageMedia`, { method: 'POST', body: form, signal: AbortSignal.timeout(45000) });
     const data = await response.json();
     if (!response.ok || !data.ok) throw this.telegramMediaError(data, response.status);
+    if (clean) await this.rememberUiMessage(chatId, data.result?.message_id || messageId);
     return data.result;
   }
 
@@ -533,6 +562,45 @@ export class TelegramHrBot {
     return path.join(this.storageDir, `chat-${safeChatId}.json`);
   }
 
+  uiStatePath(chatId) {
+    const safeChatId = String(chatId).replace(/[^0-9-]/g, "");
+    return path.join(this.storageDir, `ui-${safeChatId}.json`);
+  }
+
+  isCandidateUi(chatId) { return this.uiChatId === String(chatId); }
+
+  async withCandidateUi(chatId, inputMessageId, action) {
+    const previous = this.uiChatId;
+    this.uiChatId = String(chatId);
+    try {
+      if (inputMessageId) await this.deleteMessageQuietly(chatId, inputMessageId);
+      return await action();
+    } finally { this.uiChatId = previous; }
+  }
+
+  async loadUiMessageId(chatId) {
+    try {
+      const value = JSON.parse(await readFile(this.uiStatePath(chatId), "utf8"));
+      return Number.isSafeInteger(value?.messageId) && value.messageId > 0 ? value.messageId : null;
+    } catch { return null; }
+  }
+
+  async rememberUiMessage(chatId, messageId) {
+    if (!Number.isSafeInteger(Number(messageId)) || Number(messageId) <= 0) return;
+    await mkdir(this.storageDir, { recursive: true });
+    await writeFile(this.uiStatePath(chatId), JSON.stringify({ messageId: Number(messageId) }), "utf8");
+  }
+
+  async deleteMessageQuietly(chatId, messageId) {
+    try { await this.telegramRequest("deleteMessage", { chat_id: chatId, message_id: messageId }); }
+    catch { /* Cleanup is best-effort and must never block the candidate flow. */ }
+  }
+
+  async prepareUiMessage(chatId, keepMessageId = null) {
+    const active = await this.loadUiMessageId(chatId);
+    if (active && active !== Number(keepMessageId)) await this.deleteMessageQuietly(chatId, active);
+  }
+
   async sendToManager(text) {
     if (!this.config.HR_MANAGER_CHAT_ID) return false;
     return this.sendMessage(this.config.HR_MANAGER_CHAT_ID, text);
@@ -550,6 +618,8 @@ export class TelegramHrBot {
   }
 
   async sendDocument(chatId, course, day, caption, replyMarkup) {
+    const clean = this.isCandidateUi(chatId);
+    if (clean) await this.prepareUiMessage(chatId);
     const bytes = await readFile(new URL(`../materials/${course}/day${day}.pdf`, import.meta.url));
     const form = new FormData();
     form.set('chat_id', String(chatId)); form.set('caption', caption);
@@ -558,19 +628,25 @@ export class TelegramHrBot {
     const response = await fetch(`https://api.telegram.org/bot${this.config.TELEGRAM_BOT_TOKEN}/sendDocument`, { method: 'POST', body: form, signal: AbortSignal.timeout(45000) });
     const data = await response.json();
     if (!data.ok) throw Object.assign(new Error('Document delivery failed'), { code: data.error_code, retryAfter: data.parameters?.retry_after });
+    if (clean) await this.rememberUiMessage(chatId, data.result?.message_id);
     return data.result;
   }
 
   async sendMessage(chatId, text, replyMarkup) {
+    const clean = this.isCandidateUi(chatId);
+    if (clean && text.length > 3500) text = text.slice(0, 3490) + '…';
     if (text.length > 3500) {
       for (let index = 0; index < text.length; index += 3500) {
         await this.sendMessage(chatId, text.slice(index, index + 3500), index + 3500 >= text.length ? replyMarkup : undefined);
       }
       return true;
     }
+    if (clean) await this.prepareUiMessage(chatId);
     const payload = { chat_id: chatId, text };
     if (replyMarkup) payload.reply_markup = replyMarkup;
-    return this.telegramRequest("sendMessage", payload);
+    const result = await this.telegramRequest("sendMessage", payload);
+    if (clean) await this.rememberUiMessage(chatId, result?.message_id);
+    return result;
   }
 
   async telegramRequest(method, payload, signal) {

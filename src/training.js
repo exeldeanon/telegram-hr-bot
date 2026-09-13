@@ -31,6 +31,13 @@ export class Training {
     }
     return { data, event };
   }
+  async getForUser(userId) {
+    const data = await this.bot.admin.load();
+    const applications = data.events
+      .filter((event) => event.type === 'application' && String(event.userId) === String(userId))
+      .sort((a, b) => Number(b.id) - Number(a.id));
+    return applications.find((event) => event.training) || applications[0] || null;
+  }
   checkOwner(event, userId) { if (String(event.userId) !== String(userId)) fail('Нет доступа', 403); }
   async status(id, value) {
     if (!Object.hasOwn(STATUSES, value)) fail('Неизвестный статус');
@@ -85,6 +92,39 @@ export class Training {
       attemptsTotal: days.reduce((sum, day) => sum + day.attempts, 0), days,
     };
   }
+  async dashboard(userId) {
+    const event = await this.getForUser(userId);
+    const home = [button('‹ Главное меню', 'menu:home')];
+    if (!event) return {
+      text: '🎓 МОЁ ОБУЧЕНИЕ\n\nУ вас пока нет отправленной анкеты. Сначала выберите вакансию и заполните анкету — после рассмотрения менеджер сможет назначить курс.',
+      markup: keyboard([button('💼 Выбрать вакансию', 'menu:vacancies')], home),
+    };
+    const progress = this.summary(event);
+    if (!progress.assigned) return {
+      text: `🎓 МОЁ ОБУЧЕНИЕ\n\nЗаявка: ${progress.courseTitle || 'направление уточняется'}\nСтатус: обучение ещё не назначено\n\nКогда менеджер откроет курс, здесь появятся материалы, тесты и статистика по попыткам.`,
+      markup: keyboard([button('🔄 Обновить', 'menu:training')], [button('💬 Связаться с менеджером', 'menu:manager')], home),
+    };
+    const delivered = progress.days.filter((day) => day.state !== 'locked');
+    const current = delivered.at(-1) || null;
+    const lines = progress.days.map((day) => {
+      const mark = { passed: '✅', failed: '❌', testing: '📝', sent: '📘', locked: '○' }[day.state] || '○';
+      const result = day.state === 'passed' ? `сдан с ${day.passedOnAttempt}-й попытки` : day.state === 'failed' ? `${day.score}/${day.total}, попыток: ${day.attempts}` : day.state === 'testing' ? 'тест начат' : day.state === 'sent' ? 'материал получен' : 'ещё не открыт';
+      return `${mark} День ${day.day}: ${result}`;
+    });
+    const scale = progress.days.map((day) => day.state === 'passed' ? '●' : '○').join('');
+    const status = progress.completedAt ? 'Курс завершён 🎉' : current ? `Сейчас: день ${current.day} из ${progress.totalDays}` : 'Первый материал готовится к отправке';
+    const rows = [];
+    if (current) {
+      rows.push([button('📥 Получить материал снова', `learn:resend:${event.id}:${current.day - 1}`)]);
+      if (current.state === 'failed') rows.push([button('↻ Повторить тест', `learn:retry:${event.id}:${current.day - 1}`)]);
+      else if (['sent', 'testing'].includes(current.state)) rows.push([button('📝 Продолжить тест', `learn:resume:${event.id}:${current.day - 1}`)]);
+    }
+    rows.push([button('🔄 Обновить статистику', 'menu:training')], [button('💬 Связаться с менеджером', 'menu:manager')], home);
+    return {
+      text: `🎓 МОЁ ОБУЧЕНИЕ\n\n${progress.courseTitle}\n${status}\nПрогресс: ${scale}  ${progress.testsPassed}/${progress.totalDays}\n\nСдано тестов: ${progress.testsPassed}\nПройдено тестов: ${progress.testsAttempted}\nВсего попыток: ${progress.attemptsTotal}\n\n${lines.join('\n')}`,
+      markup: keyboard(...rows),
+    };
+  }
   async tick(now = Date.now()) {
     const { events } = await this.bot.admin.load();
     for (const item of events.filter((e) => e.training)) {
@@ -94,10 +134,11 @@ export class Training {
       const day = t.days.length;
       const lesson = COURSES[t.course][day];
       try {
-        await this.bot.sendDocument(event.userId, t.course, day + 1, `🎓 UpHire · День ${day + 1}/5\n${lesson.title}\n\n${NOTICE}`, keyboard(
+        await this.bot.withCandidateUi(event.userId, null, () => this.bot.sendDocument(event.userId, t.course, day + 1, `🎓 UpHire · День ${day + 1}/5\n${lesson.title}\n\n${NOTICE}`, keyboard(
           [button('✅ Ознакомился · пройти тест', `learn:read:${event.id}:${day}`)],
+          [button('📊 Моя статистика', 'menu:training')],
           ...(this.bot.miniAppKeyboard()?.inline_keyboard || []),
-        ));
+        )));
         t.days.push({ sentAt: now, answers: [], attempt: 0 });
         t.nextAt = now + DAY;
         delete t.deliveryError;
@@ -148,10 +189,32 @@ export class Training {
     await this.bot.admin.save(data);
     return this.viewDay(event, day);
   }
+  async resend(id, day, userId) {
+    const { event } = await this.get(id); this.checkOwner(event, userId);
+    const record = event.training?.days[day];
+    const lesson = COURSES[event.training?.course]?.[day];
+    if (!record || !lesson || !Number.isInteger(day)) fail('Этот материал ещё не открыт');
+    const action = record.result?.passed ? [button('📊 Вернуться к статистике', 'menu:training')]
+      : record.result ? [button('↻ Повторить тест', `learn:retry:${id}:${day}`)]
+      : [button(record.readAt ? '📝 Продолжить тест' : '✅ Ознакомился · пройти тест', `learn:${record.readAt ? 'resume' : 'read'}:${id}:${day}`)];
+    await this.bot.sendDocument(userId, event.training.course, day + 1, `🎓 UpHire · День ${day + 1}/5\n${lesson.title}\n\nМатериал отправлен повторно.\n\n${NOTICE}`, keyboard(action, [button('📊 Моя статистика', 'menu:training')], [button('‹ Главное меню', 'menu:home')]));
+  }
+  async present(event, day, userId) {
+    const record = event.training.days[day];
+    const questions = QUIZZES[event.training.course][day];
+    if (record.result) {
+      const actions = record.result.passed ? [] : [[button('↻ Повторить тест', `learn:retry:${event.id}:${day}`)]];
+      await this.bot.sendMessage(userId, `День ${day + 1}: ${record.result.score}/3 · ${record.result.passed ? '✅ Зачёт' : 'Нужно 2 из 3'}\n\n${questions.map((q, i) => `${i + 1}. ${q.explanation}`).join('\n\n')}`, keyboard(...actions, [button('📊 Моя статистика', 'menu:training')], [button('‹ Главное меню', 'menu:home')]));
+      return;
+    }
+    const index = record.answers.length;
+    await this.bot.sendMessage(userId, `📝 День ${day + 1} · Вопрос ${index + 1}/3\n\n${questions[index].text}`, keyboard(...questions[index].options.map((option, number) => [button(option, `learn:answer:${event.id}:${day}:${record.attempt}:${index}:${number}`)]), [button('📥 Материал ещё раз', `learn:resend:${event.id}:${day}`)], [button('📊 Моя статистика', 'menu:training')]));
+  }
   async callback(callback) {
     const [, action, id, ds, attempt, qi, option] = callback.data.split(':');
     const day = Number(ds), userId = callback.from.id;
-    if (action === 'read') await this.read(id, day, userId);
+    if (action === 'resend') { await this.resend(id, day, userId); return; }
+    if (action === 'read' || action === 'resume') await this.read(id, day, userId);
     else if (action === 'retry') await this.retry(id, day, userId);
     else if (action === 'answer') {
       const { data, event } = await this.get(id); this.checkOwner(event, userId);
@@ -163,13 +226,6 @@ export class Training {
       if (r.answers.length === 3) await this.submit(id, day, userId, r.answers, r.attempt);
     } else return;
     const { event } = await this.get(id); this.checkOwner(event, userId);
-    const r = event.training.days[day];
-    const questions = QUIZZES[event.training.course][day];
-    if (r.result) {
-      await this.bot.sendMessage(userId, `День ${day + 1}: ${r.result.score}/3 · ${r.result.passed ? '✅ Зачёт' : 'Нужно 2 из 3'}\n\n${questions.map((q, i) => `${i + 1}. ${q.explanation}`).join('\n\n')}`, r.result.passed ? undefined : keyboard([button('↻ Повторить тест', `learn:retry:${id}:${day}`)]));
-    } else {
-      const i = r.answers.length;
-      await this.bot.sendMessage(userId, `📝 День ${day + 1} · Вопрос ${i + 1}/3\n\n${questions[i].text}`, keyboard(...questions[i].options.map((o, n) => [button(o, `learn:answer:${id}:${day}:${r.attempt}:${i}:${n}`)])));
-    }
+    await this.present(event, day, userId);
   }
 }
