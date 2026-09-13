@@ -27,12 +27,11 @@ test("candidate funnel, admin authorization, persistence and notification retry"
     id: String(++messageId), data, from: { id: 1 }, message: { chat: { id: 1, type: "private" } },
   } });
   await message("/start source");
-  await callback("menu:apply");
+  const vacancy = Object.keys(VACANCIES)[0];
+  await callback(`menu:job:${vacancy}`);
+  await callback(`menu:apply:${vacancy}`);
   await callback("consent:accept");
   await message("Иван");
-  assert.equal((await bot.loadState(1)).step, "awaiting_vacancy");
-  const vacancy = Object.keys(VACANCIES)[0];
-  await callback(`vacancy:${vacancy}`);
   assert.equal((await bot.loadState(1)).step, "awaiting_vacancy_confirmation");
   await callback(`application:submit:${vacancy}`);
   assert.equal((await bot.admin.load()).events.length, 2);

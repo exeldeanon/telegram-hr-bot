@@ -4,7 +4,7 @@ import { VACANCIES } from "./vacancies.js";
 import { Admin } from "./admin.js";
 import { Training } from "./training.js";
 import { button, keyboard, questionCard, vacancyLabels } from "./ui.js";
-import { handleMenu, homeText, homeKeyboard, backHome } from './menu.js';
+import { handleMenu, homeText, homeKeyboard, backHome, replacementCatalogKeyboard } from './menu.js';
 
 const CALLBACKS = {
   acceptConsent: "consent:accept",
@@ -59,7 +59,7 @@ export class TelegramHrBot {
       return;
     }
     if (/^\/restart(?:@[A-Za-z0-9_]+)?(?:\s|$)/.test(text)) {
-      await this.sendMessage(chatId, 'Начать анкету заново? Незавершённые ответы будут заменены. Уже поданные заявки сохранятся.', keyboard([button('Да, начать заново', 'menu:reset:confirm')], [button('Продолжить анкету', 'menu:application'), backHome()]));
+      await this.sendMessage(chatId, '💼 Сначала выберите вакансию для новой анкеты.\n\nТекущий черновик не изменится, пока вы не выберете направление.', replacementCatalogKeyboard());
       return;
     }
 
@@ -152,6 +152,11 @@ export class TelegramHrBot {
     if (data === CALLBACKS.acceptConsent) {
       const state = await this.loadState(chatId);
       if (state.step !== "awaiting_consent") return;
+      if (!VACANCIES[state.vacancyId]) {
+        await this.saveState(chatId, { step: 'idle', draft: {} });
+        await this.sendMessage(chatId, '💼 Анкету можно начать только после выбора вакансии.', this.vacancyKeyboard());
+        return;
+      }
       await this.saveState(chatId, { ...state, step: "awaiting_name", draft: {} });
       await this.sendMessage(chatId, questionCard(QUESTIONS, "awaiting_name"), keyboard([backHome()]));
       return;
@@ -223,23 +228,30 @@ export class TelegramHrBot {
   async beginApplication(callback, vacancyId = '', reset = false) {
     const chatId = callback.message.chat.id;
     const state = await this.loadState(chatId);
+    if (!Object.hasOwn(VACANCIES, vacancyId)) {
+      await this.showBanner(callback, 'vacancies', '💼 Сначала выберите вакансию\n\nАнкета открывается только из карточки выбранной вакансии.', this.vacancyKeyboard());
+      return;
+    }
     if (!reset && !['idle', 'completed', 'awaiting_consent'].includes(state.step || 'idle')) {
       await this.sendMessage(chatId, '✍️ У вас уже есть незавершённая анкета.\n\nМожно продолжить её или начать заново с подтверждением. Просмотр вакансий не меняет сохранённые ответы.', keyboard([button('Продолжить с места остановки', 'menu:application')], [button('Начать новую анкету', 'menu:restart'), backHome()]));
       return;
     }
-    if (vacancyId && !Object.hasOwn(VACANCIES, vacancyId)) {
-      await this.sendMessage(chatId, 'Выберите направление из каталога.', homeKeyboard()); return;
-    }
-    await this.saveState(chatId, { step: 'awaiting_consent', draft: {}, session: `${chatId}-${callback.id || crypto.randomUUID()}`, ...(vacancyId ? { vacancyId } : {}) });
-    await this.sendMessage(chatId, this.welcomeText(), this.consentKeyboard());
+    await this.saveState(chatId, { step: 'awaiting_consent', draft: {}, session: `${chatId}-${callback.id || crypto.randomUUID()}`, vacancyId });
+    await this.showBanner(callback, 'application', this.welcomeText(vacancyId), this.consentKeyboard());
   }
 
-  async resumeApplication(chatId) {
+  async resumeApplication(chatId, callback) {
     const state = await this.loadState(chatId);
+    const show = (asset, text, markup) => callback ? this.showBanner(callback, asset, text, markup) : this.sendMessage(chatId, text, markup);
     if (state.step === 'completed') {
-      await this.sendMessage(chatId, '✅ Ваша анкета сохранена для рассмотрения.\n\nНе нужно отправлять её повторно. По следующим шагам можно обратиться к менеджеру.', keyboard([button('💬 Связь с менеджером', 'menu:manager')], [button('Новая анкета', 'menu:restart'), backHome()])); return;
+      const actions = keyboard([button('💬 Связь с менеджером', 'menu:manager')], [button('💼 Выбрать другую вакансию', 'menu:vacancies'), backHome()]);
+      if (VACANCIES[state.vacancyId] && this.isCompletedDraft(state.draft)) {
+        await show('application', '✅ Ваша анкета сохранена для рассмотрения\n\nНиже — все ответы, которые вы отправили.', undefined);
+        await this.sendMessage(chatId, this.formatApplication(state.draft, state.vacancyId), actions);
+      } else await show('application', '✅ Ваша анкета сохранена для рассмотрения.', actions);
+      return;
     }
-    if (state.step === 'awaiting_consent') { await this.sendMessage(chatId, this.welcomeText(), this.consentKeyboard()); return; }
+    if (state.step === 'awaiting_consent' && VACANCIES[state.vacancyId]) { await show('application', this.welcomeText(state.vacancyId), this.consentKeyboard()); return; }
     if (state.step === 'awaiting_vacancy') { await this.sendMessage(chatId, '💼 Продолжим: выберите направление для анкеты.', this.vacancyKeyboard()); return; }
     if (state.step === 'awaiting_vacancy_confirmation' && VACANCIES[state.vacancyId]) {
       await this.sendMessage(chatId, VACANCIES[state.vacancyId].description, keyboard([button('✍️ Продолжить анкету →', 'application:continue')], [button('‹ Другие профессии', 'vacancies:back'), backHome()])); return;
@@ -248,7 +260,7 @@ export class TelegramHrBot {
       await this.sendMessage(chatId, `✅ Проверьте анкету\n\n${this.formatApplication(state.draft, state.vacancyId)}`, this.submitKeyboard(state.vacancyId)); return;
     }
     if (QUESTIONS[state.step]) { await this.sendMessage(chatId, questionCard(QUESTIONS, state.step), keyboard([backHome()])); return; }
-    await this.sendMessage(chatId, '✍️ Давайте познакомимся\n\nВы можете сначала посмотреть вакансии или сразу перейти к анкете.', keyboard([button('Начать анкету', 'menu:apply'), button('💼 Вакансии', 'menu:vacancies')], [backHome()]));
+    await show('application', '📄 Заполненной анкеты пока нет\n\nЗдесь можно посмотреть уже заполненную анкету. Чтобы создать новую, сначала выберите вакансию и нажмите «Откликнуться».', keyboard([button('💼 Выбрать вакансию', 'menu:vacancies')], [backHome()]));
   }
 
   async showPanel(callback, text, replyMarkup) {
@@ -265,8 +277,25 @@ export class TelegramHrBot {
     return this.sendMessage(message.chat.id, text, replyMarkup);
   }
 
+  async showBanner(callback, asset, text, replyMarkup) {
+    const message = callback.message;
+    if (text.length > 1024) return this.showPanel(callback, text, replyMarkup);
+    if (message.photo && message.message_id) {
+      try { return await this.editPhoto(message.chat.id, message.message_id, asset, text, replyMarkup); }
+      catch (error) {
+        if (error.notModified) return;
+        // A stale Telegram media message must not break the menu: send a fresh card below.
+      }
+    }
+    try { return await this.sendPhoto(message.chat.id, text, replyMarkup, asset); }
+    catch (error) {
+      console.error(`Banner ${asset} unavailable (code ${error.code || 'network'}); sending text panel.`);
+      return this.showPanel(callback, text, replyMarkup);
+    }
+  }
+
   async sendWelcome(chatId) {
-    try { return await this.sendPhoto(chatId, homeText, homeKeyboard()); }
+    try { return await this.sendPhoto(chatId, homeText, homeKeyboard(), 'home'); }
     catch (error) {
       // Navigation must remain usable if Telegram cannot deliver the image.
       console.error(`Welcome image unavailable (code ${error.code || 'network'}); sending text menu.`);
@@ -274,16 +303,44 @@ export class TelegramHrBot {
     }
   }
 
-  async sendPhoto(chatId, caption, replyMarkup) {
-    const bytes = await readFile(new URL('../assets/uphire-logo.jpg', import.meta.url));
+  async sendPhoto(chatId, caption, replyMarkup, asset = 'home') {
+    const { bytes, filename } = await this.banner(asset);
     const form = new FormData();
     form.set('chat_id', String(chatId)); form.set('caption', caption);
-    form.set('photo', new Blob([bytes], { type: 'image/jpeg' }), 'uphire-logo.jpg');
-    form.set('reply_markup', JSON.stringify(replyMarkup));
+    form.set('photo', new Blob([bytes], { type: 'image/png' }), filename);
+    if (replyMarkup) form.set('reply_markup', JSON.stringify(replyMarkup));
     const response = await fetch(`https://api.telegram.org/bot${this.config.TELEGRAM_BOT_TOKEN}/sendPhoto`, { method: 'POST', body: form, signal: AbortSignal.timeout(45000) });
     const data = await response.json();
-    if (!response.ok || !data.ok) throw Object.assign(new Error('Welcome image delivery failed'), { code: data.error_code || response.status });
+    if (!response.ok || !data.ok) throw this.telegramMediaError(data, response.status);
     return data.result;
+  }
+
+  async editPhoto(chatId, messageId, asset, caption, replyMarkup) {
+    const { bytes, filename } = await this.banner(asset);
+    const form = new FormData();
+    form.set('chat_id', String(chatId)); form.set('message_id', String(messageId));
+    form.set('media', JSON.stringify({ type: 'photo', media: 'attach://photo', caption }));
+    form.set('photo', new Blob([bytes], { type: 'image/png' }), filename);
+    if (replyMarkup) form.set('reply_markup', JSON.stringify(replyMarkup));
+    const response = await fetch(`https://api.telegram.org/bot${this.config.TELEGRAM_BOT_TOKEN}/editMessageMedia`, { method: 'POST', body: form, signal: AbortSignal.timeout(45000) });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw this.telegramMediaError(data, response.status);
+    return data.result;
+  }
+
+  async banner(asset) {
+    const names = new Set(['home', 'vacancies', 'about', 'how', 'manager', 'application', 'faq', 'training']);
+    const safeAsset = names.has(asset) ? asset : 'home';
+    const filename = `banner-${safeAsset}.png`;
+    return { bytes: await readFile(new URL(`../assets/${filename}`, import.meta.url)), filename };
+  }
+
+  telegramMediaError(data, status) {
+    const error = new Error('Telegram media delivery failed');
+    error.code = data.error_code || status;
+    error.retryAfter = data.parameters?.retry_after;
+    error.notModified = data.error_code === 400 && /message is not modified/i.test(data.description || '');
+    return error;
   }
 
   advanceDraft(step, input, draft) {
@@ -411,19 +468,14 @@ export class TelegramHrBot {
 Прошу рассмотреть мою кандидатуру. Спасибо! 🙌`;
   }
 
-  welcomeText() {
+  welcomeText(vacancyId) {
+    const vacancy = VACANCIES[vacancyId];
     return `UpHire · КАРЬЕРА
 
-👋 Давайте найдём ваше направление
+👋 Вы выбрали: ${vacancy?.title || 'вакансия не выбрана'}
 
-Помогу познакомиться с вакансиями и подать заявку HR-менеджеру.
+Чтобы начать анкету, ознакомьтесь с документами:
 
-👋 Знакомство и ваше имя
-🧭 Выбор направления
-✍️ Остальные вопросы анкеты
-📨 Подача анкеты
-
-Перед началом ознакомьтесь с документами:
 🔗 Политика конфиденциальности: ${this.config.POLICY_URL}
 🔗 Согласие на обработку персональных данных: ${this.config.PERSONAL_DATA_URL}
 

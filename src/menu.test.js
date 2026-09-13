@@ -13,7 +13,8 @@ async function fixture(t) {
   const bot = new TelegramHrBot({ DATA_DIR: dir, HR_MANAGER_USERNAME: 'UpHireManager', POLICY_URL: 'https://example.test/privacy', PERSONAL_DATA_URL: 'https://example.test/consent' });
   const sent = []; let id = 0;
   bot.telegramRequest = async (method, payload) => { sent.push({ method, ...payload }); return { message_id: 100 }; };
-  bot.sendPhoto = async (chatId, caption, reply_markup) => { sent.push({ method: 'sendPhoto', chat_id: chatId, caption, reply_markup }); return { message_id: 100 }; };
+  bot.sendPhoto = async (chatId, caption, reply_markup, asset = 'home') => { sent.push({ method: 'sendPhoto', chat_id: chatId, caption, reply_markup, asset }); return { message_id: 100 }; };
+  bot.editPhoto = async (chatId, messageId, asset, caption, reply_markup) => { sent.push({ method: 'editPhoto', chat_id: chatId, message_id: messageId, caption, reply_markup, asset }); return { message_id: messageId }; };
   const message = text => bot.handleUpdate({ message: { message_id: ++id, text, from: { id: 1 }, chat: { id: 1, type: 'private' } } });
   const click = (data, photo = false) => bot.handleUpdate({ callback_query: { id: String(++id), data, from: { id: 1 }, message: { message_id: 100, chat: { id: 1, type: 'private' }, ...(photo ? { photo: [{}] } : {}) } } });
   return { bot, sent, message, click };
@@ -31,11 +32,15 @@ test('start offers branded menu; navigation leaves drafts intact', async t => {
     await click(`menu:${page}`, true);
     assert.deepEqual(await bot.loadState(1), state);
     assert.ok(sent.at(-1).reply_markup.inline_keyboard.flat().length);
+    assert.equal(sent.at(-1).asset, page === 'home' ? 'home' : page);
   }
+  await click('menu:apply', true); assert.deepEqual(await bot.loadState(1), state);
+  assert.equal(sent.at(-1).asset, 'vacancies');
   await click('menu:apply:insurance_agent'); assert.deepEqual(await bot.loadState(1), state);
   await click('menu:application'); assert.match(sent.at(-1).text, /номер телефона/);
   await message('/restart'); assert.deepEqual(await bot.loadState(1), state);
-  await click('menu:reset:confirm'); assert.equal((await bot.loadState(1)).step, 'awaiting_consent');
+  await click('menu:replace:insurance_agent'); assert.equal((await bot.loadState(1)).step, 'awaiting_consent');
+  assert.equal((await bot.loadState(1)).vacancyId, 'insurance_agent');
   assert.deepEqual((await bot.loadState(1)).draft, {});
 });
 
@@ -51,7 +56,8 @@ test('vacancy-first application still requires consent and reaches durable submi
   for (const text of ['89991234567', '25', 'нет', 'Москва', 'ПК', 'да', 'ничего']) await message(text);
   assert.equal((await bot.loadState(1)).step, 'awaiting_submission');
   await click('application:submit:chat_operator');
-  await click('menu:application'); assert.match(sent.at(-1).text, /анкета сохранена/);
+  await click('menu:application'); assert.match(sent.at(-1).text, /Анкета кандидата/);
+  assert.equal(sent.at(-2).asset, 'application');
   await message('/start'); assert.equal((await bot.loadState(1)).step, 'completed');
   assert.equal((await bot.admin.load()).events.filter(e => e.type === 'application').length, 1);
 });
@@ -64,17 +70,20 @@ test('buttons meet Telegram limits; invalid manager has safe fallback', async t 
   for (const id of Object.keys(VACANCIES)) assert.ok(Buffer.byteLength(`menu:apply:${id}`) <= 64);
   bot.config.HR_MANAGER_USERNAME = 'bad/path'; await click('menu:manager');
   assert.equal(sent.at(-1).reply_markup.inline_keyboard[0][0].url, 'https://up-hire.ru');
-  await click('menu:job:unknown'); assert.match(sent.at(-1).text, /нет в каталоге/);
+  await click('menu:job:unknown'); assert.match(sent.at(-1).caption, /нет в каталоге/);
 });
 
-test('logo is uploaded as multipart; image failure falls back to usable menu', async t => {
+test('home banner is uploaded as multipart; image failure falls back to usable menu', async t => {
   const { bot, sent } = await fixture(t);
-  const logo = await readFile(new URL('../assets/uphire-logo.jpg', import.meta.url));
-  assert.ok(logo.length > 1000); assert.equal(logo[0], 255); assert.equal(logo[1], 216);
+  const bannerNames = ['home', 'vacancies', 'about', 'how', 'manager', 'application', 'faq', 'training'];
+  for (const name of bannerNames) {
+    const banner = await readFile(new URL(`../assets/banner-${name}.png`, import.meta.url));
+    assert.ok(banner.length > 100000); assert.deepEqual([...banner.subarray(0, 4)], [137, 80, 78, 71]);
+  }
   bot.sendPhoto = TelegramHrBot.prototype.sendPhoto;
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     assert.ok(url.endsWith('/sendPhoto')); assert.ok(options.body instanceof FormData);
-    assert.equal(options.body.get('photo').type, 'image/jpeg');
+    assert.equal(options.body.get('photo').type, 'image/png');
     assert.equal(options.body.get('caption'), homeText);
     return { ok: true, json: async () => ({ ok: true, result: { message_id: 3 } }) };
   });
@@ -85,12 +94,8 @@ test('logo is uploaded as multipart; image failure falls back to usable menu', a
 
 test('unmodified panel is harmless and long photo caption becomes a text panel', async t => {
   const { bot, sent, click } = await fixture(t);
-  const original = bot.telegramRequest;
-  bot.telegramRequest = async (method, payload) => {
-    if (method.startsWith('edit')) throw Object.assign(new Error('unchanged'), { code: 400, notModified: true });
-    return original(method, payload);
-  };
-  await click('menu:home'); assert.equal(sent.at(-1).method, 'answerCallbackQuery');
+  bot.editPhoto = async () => { throw Object.assign(new Error('unchanged'), { code: 400, notModified: true }); };
+  await click('menu:home', true); assert.equal(sent.at(-1).method, 'answerCallbackQuery');
   await bot.showPanel({ message: { chat: { id: 1 }, message_id: 100, photo: [{}] } }, 'x'.repeat(1200), homeKeyboard());
   assert.equal(sent.at(-1).method, 'sendMessage');
 });
