@@ -32,6 +32,7 @@ test('start offers branded menu; navigation leaves drafts intact', async t => {
   assert.ok(!buttons.some(b => b.url === 'https://up-hire.ru/personal-data'));
   assert.match(homeText, /https:\/\/up-hire\.ru\/policy/);
   assert.match(homeText, /https:\/\/up-hire\.ru\/personal-data/);
+  assert.match(homeText, /<a href="https:\/\/up-hire\.ru\/policy">Политика конфиденциальности<\/a>/);
   assert.ok(buttons.some(b => b.callback_data === 'menu:faq'));
   assert.ok(!buttons.some(b => b.callback_data === 'menu:how'));
   for (const page of ['about', 'how', 'faq', 'vacancies', 'manager', 'training', 'home']) {
@@ -93,6 +94,7 @@ test('home banner is uploaded as multipart; image failure falls back to usable m
     assert.ok(url.endsWith('/sendPhoto')); assert.ok(options.body instanceof FormData);
     assert.equal(options.body.get('photo').type, 'image/png');
     assert.equal(options.body.get('caption'), homeText);
+    assert.equal(options.body.get('parse_mode'), 'HTML');
     return { ok: true, json: async () => ({ ok: true, result: { message_id: 3 } }) };
   });
   assert.equal((await bot.sendWelcome(1)).message_id, 3);

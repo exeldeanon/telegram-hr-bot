@@ -275,7 +275,7 @@ export class TelegramHrBot {
     await show('application', '📄 Заполненной анкеты пока нет\n\nЗдесь можно посмотреть уже заполненную анкету. Чтобы создать новую, сначала выберите вакансию и нажмите «Откликнуться».', keyboard([button('💼 Выбрать вакансию', 'menu:vacancies')], [backHome()]));
   }
 
-  async showPanel(callback, text, replyMarkup) {
+  async showPanel(callback, text, replyMarkup, parseMode) {
     const message = callback.message;
     if (this.isCandidateUi(message.chat.id) && message.message_id) {
       await this.prepareUiMessage(message.chat.id, message.message_id);
@@ -284,13 +284,13 @@ export class TelegramHrBot {
     if (message.message_id && (!message.photo || text.length <= 1024)) {
       const method = message.photo ? 'editMessageCaption' : 'editMessageText';
       try {
-        return await this.telegramRequest(method, { chat_id: message.chat.id, message_id: message.message_id, [message.photo ? 'caption' : 'text']: text, reply_markup: replyMarkup });
+        return await this.telegramRequest(method, { chat_id: message.chat.id, message_id: message.message_id, [message.photo ? 'caption' : 'text']: text, reply_markup: replyMarkup, ...(parseMode ? { parse_mode: parseMode } : {}) });
       } catch (error) {
         if (error.notModified) return;
         if (error.code !== 400) throw error;
       }
     }
-    return this.sendMessage(message.chat.id, text, replyMarkup);
+    return this.sendMessage(message.chat.id, text, replyMarkup, parseMode);
   }
 
   async showBanner(callback, asset, text, replyMarkup) {
@@ -299,7 +299,8 @@ export class TelegramHrBot {
       await this.prepareUiMessage(message.chat.id, message.message_id);
       await this.rememberUiMessage(message.chat.id, message.message_id);
     }
-    if (text.length > 1024) return this.showPanel(callback, text, replyMarkup);
+    const parseMode = asset === 'home' ? 'HTML' : undefined;
+    if (text.length > 1024) return this.showPanel(callback, text, replyMarkup, parseMode);
     if (message.photo && message.message_id) {
       try { return await this.editPhoto(message.chat.id, message.message_id, asset, text, replyMarkup); }
       catch (error) {
@@ -310,7 +311,7 @@ export class TelegramHrBot {
     try { return await this.sendPhoto(message.chat.id, text, replyMarkup, asset); }
     catch (error) {
       console.error(`Banner ${asset} unavailable (code ${error.code || 'network'}); sending text panel.`);
-      return this.showPanel(callback, text, replyMarkup);
+      return this.showPanel(callback, text, replyMarkup, parseMode);
     }
   }
 
@@ -319,7 +320,7 @@ export class TelegramHrBot {
     catch (error) {
       // Navigation must remain usable if Telegram cannot deliver the image.
       console.error(`Welcome image unavailable (code ${error.code || 'network'}); sending text menu.`);
-      return this.sendMessage(chatId, homeText, homeKeyboard());
+      return this.sendMessage(chatId, homeText, homeKeyboard(), 'HTML');
     }
   }
 
@@ -329,6 +330,7 @@ export class TelegramHrBot {
     const { bytes, filename } = await this.banner(asset);
     const form = new FormData();
     form.set('chat_id', String(chatId)); form.set('caption', caption);
+    if (asset === 'home') form.set('parse_mode', 'HTML');
     form.set('photo', new Blob([bytes], { type: 'image/png' }), filename);
     if (replyMarkup) form.set('reply_markup', JSON.stringify(replyMarkup));
     const response = await fetch(`https://api.telegram.org/bot${this.config.TELEGRAM_BOT_TOKEN}/sendPhoto`, { method: 'POST', body: form, signal: AbortSignal.timeout(45000) });
@@ -347,7 +349,7 @@ export class TelegramHrBot {
     const { bytes, filename } = await this.banner(asset);
     const form = new FormData();
     form.set('chat_id', String(chatId)); form.set('message_id', String(messageId));
-    form.set('media', JSON.stringify({ type: 'photo', media: 'attach://photo', caption }));
+    form.set('media', JSON.stringify({ type: 'photo', media: 'attach://photo', caption, ...(asset === 'home' ? { parse_mode: 'HTML' } : {}) }));
     form.set('photo', new Blob([bytes], { type: 'image/png' }), filename);
     if (replyMarkup) form.set('reply_markup', JSON.stringify(replyMarkup));
     const response = await fetch(`https://api.telegram.org/bot${this.config.TELEGRAM_BOT_TOKEN}/editMessageMedia`, { method: 'POST', body: form, signal: AbortSignal.timeout(45000) });
@@ -632,18 +634,19 @@ export class TelegramHrBot {
     return data.result;
   }
 
-  async sendMessage(chatId, text, replyMarkup) {
+  async sendMessage(chatId, text, replyMarkup, parseMode) {
     const clean = this.isCandidateUi(chatId);
     if (clean && text.length > 3500) text = text.slice(0, 3490) + '…';
     if (text.length > 3500) {
       for (let index = 0; index < text.length; index += 3500) {
-        await this.sendMessage(chatId, text.slice(index, index + 3500), index + 3500 >= text.length ? replyMarkup : undefined);
+        await this.sendMessage(chatId, text.slice(index, index + 3500), index + 3500 >= text.length ? replyMarkup : undefined, parseMode);
       }
       return true;
     }
     if (clean) await this.prepareUiMessage(chatId);
     const payload = { chat_id: chatId, text };
     if (replyMarkup) payload.reply_markup = replyMarkup;
+    if (parseMode) payload.parse_mode = parseMode;
     const result = await this.telegramRequest("sendMessage", payload);
     if (clean) await this.rememberUiMessage(chatId, result?.message_id);
     return result;
