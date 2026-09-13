@@ -36,8 +36,8 @@ test("candidate funnel, admin authorization, persistence and notification retry"
   await callback(`application:submit:${vacancy}`);
   assert.equal((await bot.admin.load()).events.length, 2);
   await callback("vacancies:back");
-  assert.equal((await bot.loadState(1)).step, "awaiting_vacancy");
-  await callback(`vacancy:${vacancy}`);
+  assert.equal((await bot.loadState(1)).step, "awaiting_vacancy_confirmation");
+  assert.match(sent.at(-1).text, /только через менеджера/);
   await callback("application:continue");
   assert.equal((await bot.loadState(1)).step, "awaiting_phone");
   for (const value of ["89991234567", "25", "нет", "Россия, Москва", "ноутбук", "да", "ничего"]) await message(value);

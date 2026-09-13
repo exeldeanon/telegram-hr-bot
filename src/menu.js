@@ -17,18 +17,44 @@ export const homeText = `UpHire · работа начинается с диал
 Выберите, с чего начнём ↓`;
 export const homeKeyboard = () => keyboard(
   [button('💼 Посмотреть вакансии', 'menu:vacancies')],
-  [button('🌿 О нас', 'menu:about'), button('❔ FAQ', 'menu:faq')],
+  [button('🌿 О нас', 'menu:about'), button('❔ Ответы на вопросы', 'menu:faq')],
   [button('💬 Связь с менеджером', 'menu:manager'), { text: '↗ Наш сайт', url: WEBSITE }],
   [button('✍️ Моя анкета', 'menu:application'), button('🎓 Моё обучение', 'menu:training')],
 );
 export const backHome = () => button('‹ Главное меню', 'menu:home');
 export const infoKeyboard = () => keyboard([button('💼 Выбрать вакансию', 'menu:vacancies')], [backHome()]);
 export const catalogKeyboard = () => keyboard(...Object.entries(VACANCIES).map(([id, vacancy]) => [button(vacancyLabels[id] || vacancy.title, `menu:job:${id}`)]), [backHome()]);
-export const replacementCatalogKeyboard = () => keyboard(...Object.entries(VACANCIES).map(([id, vacancy]) => [button(vacancyLabels[id] || vacancy.title, `menu:replace:${id}`)]), [button('Нет, вернуться к анкете', 'menu:application'), backHome()]);
 export const infoPages = {
   about: '🌿 UpHire · знакомимся ближе\n\nМы помогаем кандидатам познакомиться с направлениями удалённой работы и пройти первые шаги: от выбора вакансии до общения с менеджером и обучения.\n\nВ нашем боте — поддержка в чате, звонки, страхование и партнёрский маркетинг. Выбирайте то, что ближе вашим навыкам и интересам.\n\nУсловия конкретного проекта, график, оформление и вознаграждение уточняет менеджер. Анкета — начало знакомства, а не обещание трудоустройства.',
-  faq: '❔ FAQ · как всё устроено\n\nКак подать заявку?\n1 · Выберите направление и изучите условия.\n2 · Заполните короткую анкету — ответы сохраняются.\n3 · Дождитесь сообщения менеджера о следующих шагах.\n4 · Если вам назначат обучение, материалы и тесты появятся в этом чате.\n\nНужен ли опыт?\nЗависит от направления. Часто важнее внимательность, общение и готовность учиться.\n\nМожно работать удалённо?\nВ каталоге представлены удалённые направления. Технику и график уточняйте в вакансии.\n\nСколько можно заработать?\nОплата зависит от проекта, задач и результата. Условия уточняет менеджер до старта.\n\nКак вернуться к анкете?\nОткройте /menu → «Моя анкета». Команда /start не удаляет ответы.\n\nГде обучение?\nВ разделе «Моё обучение» после назначения менеджером. Там можно продолжить тест или снова получить материал.\n\nНе нашли ответ? Напишите менеджеру через главное меню.',
 };
+
+export function answersText(managerUsername) {
+  const username = String(managerUsername || '').replace(/^@/, '');
+  const manager = /^[A-Za-z0-9_]{5,32}$/.test(username)
+    ? `<a href="https://t.me/${username}">@${username}</a>`
+    : 'через кнопку «Связь с менеджером»';
+  return `❔ Ответы на вопросы
+
+Как подать заявку?
+Выберите вакансию, изучите условия и заполните короткую анкету. После отправки менеджер свяжется с вами и расскажет о следующих шагах.
+
+Нужен ли опыт?
+Зависит от направления. Часто важнее внимательность, умение общаться и готовность учиться.
+
+Можно работать удалённо?
+Да, в каталоге представлены удалённые направления. Требования к технике и графику указаны в вакансии.
+
+Можно ли сменить выбранную вакансию?
+Самостоятельно сменить направление после выбора нельзя. Для изменения вакансии обратитесь к менеджеру.
+
+Сколько можно заработать?
+Оплата зависит от проекта, задач и результата. Точные условия менеджер уточнит до старта.
+
+Где находится обучение?
+После назначения оно появится в разделе «Моё обучение». Там можно продолжить тест или повторно получить материал.
+
+Не нашли ответ? Напишите менеджеру: ${manager}`;
+}
 
 // Navigation never changes an application draft. Mutating actions live in bot.js.
 export async function handleMenu(bot, callback) {
@@ -38,7 +64,7 @@ export async function handleMenu(bot, callback) {
   const page = data.slice(5);
   if (page === 'home') await bot.showBanner(callback, 'home', homeText, homeKeyboard());
   else if (page === 'vacancies') await bot.showBanner(callback, 'vacancies', '💼 Найдите своё направление\n\nЛюбите переписку, живое общение или работу с партнёрами? Откройте карточку, чтобы посмотреть задачи и условия.\n\nАнкета откроется только из карточки выбранной вакансии.', catalogKeyboard());
-  else if (page === 'how' || page === 'faq') await bot.showBanner(callback, 'faq', infoPages.faq, infoKeyboard());
+  else if (page === 'how' || page === 'faq') await bot.showBanner(callback, 'faq', answersText(bot.config.HR_MANAGER_USERNAME), keyboard([button('💬 Связаться с менеджером', 'menu:manager')], [button('💼 Посмотреть вакансии', 'menu:vacancies')], [backHome()]));
   else if (Object.hasOwn(infoPages, page)) await bot.showBanner(callback, page, infoPages[page], infoKeyboard());
   else if (page.startsWith('job:')) {
     const id = page.slice(4);
@@ -56,8 +82,7 @@ export async function handleMenu(bot, callback) {
   else if (page === 'application') await bot.resumeApplication(chatId, callback);
   else if (page === 'apply') await bot.showBanner(callback, 'vacancies', '💼 Сначала выберите вакансию\n\nАнкета привязывается к конкретному направлению. Откройте карточку, изучите условия и нажмите «Откликнуться».', catalogKeyboard());
   else if (page.startsWith('apply:')) await bot.beginApplication(callback, page.slice(6));
-  else if (page === 'restart') await bot.showBanner(callback, 'vacancies', '💼 Выберите вакансию для новой анкеты\n\nНезавершённый черновик будет заменён только после вашего выбора. Уже отправленные заявки останутся в CRM.', replacementCatalogKeyboard());
-  else if (page.startsWith('replace:')) await bot.beginApplication(callback, page.slice(8), true);
+  else if (page === 'restart' || page.startsWith('replace:')) await bot.showBanner(callback, 'application', '🔒 Смена направления\n\nИзменить выбранную вакансию можно только через менеджера — так мы не потеряем вашу анкету и историю рассмотрения.', keyboard([button('💬 Связаться с менеджером', 'menu:manager')], [button('✍️ Моя анкета', 'menu:application'), backHome()]));
   else await bot.showBanner(callback, 'home', homeText, homeKeyboard());
   return true;
 }

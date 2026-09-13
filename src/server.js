@@ -24,7 +24,7 @@ for (const signal of ["SIGTERM", "SIGINT"]) {
 }
 server.listen(port, "0.0.0.0", () => {
   console.log(`Telegram HR bot health server is listening on port ${port}`);
-  console.log('UpHire clickable legal links enabled (v5)');
+  console.log('UpHire manager-only vacancy changes enabled (v6)');
   runPolling(bot, controller.signal).catch(() => {
     console.error("Polling stopped unexpectedly");
     process.exitCode = 1;

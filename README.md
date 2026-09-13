@@ -6,7 +6,7 @@ No public domain or webhook secret is required.
 ## UpHire start menu
 
 `/start` and `/menu` show the supplied UpHire logo and an inline panel:
-vacancies, about, manager contact, website, application, training and a combined FAQ/process page.
+vacancies, about, manager contact, website, application, training and an answers page.
 The privacy policy and personal-data links are shown directly in the welcome text instead
 of taking up separate menu buttons.
 Navigation edits its panel when possible and never resets application answers.
@@ -14,7 +14,8 @@ Candidate input and the previous active bot card are removed after each step, so
 private chat stays as a single clean interface. Messages from older releases whose IDs
 were never stored cannot be discovered or deleted safely; all new screens are tracked.
 Browse vacancies before consent; applying still requires the existing consent step.
-`/restart` now asks for confirmation before replacing a draft; submitted applications,
+After a vacancy is selected, only the configured manager can change the direction;
+`/restart` opens that contact route instead of replacing a draft. Submitted applications,
 training progress and the CRM outbox remain unchanged. Manager contact uses the
 existing `HR_MANAGER_USERNAME`; the website is https://up-hire.ru.
 

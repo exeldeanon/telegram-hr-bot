@@ -4,7 +4,7 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { TelegramHrBot } from './bot.js';
-import { homeKeyboard, homeText, infoPages } from './menu.js';
+import { answersText, homeKeyboard, homeText, infoPages } from './menu.js';
 import { VACANCIES } from './vacancies.js';
 
 async function fixture(t) {
@@ -34,6 +34,7 @@ test('start offers branded menu; navigation leaves drafts intact', async t => {
   assert.match(homeText, /https:\/\/up-hire\.ru\/personal-data/);
   assert.match(homeText, /<a href="https:\/\/up-hire\.ru\/policy">Политика конфиденциальности<\/a>/);
   assert.ok(buttons.some(b => b.callback_data === 'menu:faq'));
+  assert.ok(buttons.some(b => b.text === '❔ Ответы на вопросы'));
   assert.ok(!buttons.some(b => b.callback_data === 'menu:how'));
   for (const page of ['about', 'how', 'faq', 'vacancies', 'manager', 'training', 'home']) {
     await click(`menu:${page}`, true);
@@ -46,9 +47,8 @@ test('start offers branded menu; navigation leaves drafts intact', async t => {
   await click('menu:apply:insurance_agent'); assert.deepEqual(await bot.loadState(1), state);
   await click('menu:application'); assert.match(sent.at(-1).text, /номер телефона/);
   await message('/restart'); assert.deepEqual(await bot.loadState(1), state);
-  await click('menu:replace:insurance_agent'); assert.equal((await bot.loadState(1)).step, 'awaiting_consent');
-  assert.equal((await bot.loadState(1)).vacancyId, 'insurance_agent');
-  assert.deepEqual((await bot.loadState(1)).draft, {});
+  await click('menu:replace:insurance_agent'); assert.deepEqual(await bot.loadState(1), state);
+  assert.match(sent.at(-1).caption || sent.at(-1).text, /только через менеджера/);
 });
 
 test('vacancy-first application still requires consent and reaches durable submission', async t => {
@@ -75,6 +75,8 @@ test('buttons meet Telegram limits; invalid manager has safe fallback', async t 
   const { bot, sent, click } = await fixture(t);
   assert.ok(homeText.length <= 1024);
   for (const text of Object.values(infoPages)) assert.ok(text.length <= 1024);
+  assert.ok(answersText('UpHireManager1').length <= 1024);
+  assert.match(answersText('@UpHireManager1'), /href="https:\/\/t\.me\/UpHireManager1">@UpHireManager1<\/a>/);
   for (const row of homeKeyboard().inline_keyboard) for (const b of row) if (b.callback_data) assert.ok(Buffer.byteLength(b.callback_data) <= 64);
   for (const id of Object.keys(VACANCIES)) assert.ok(Buffer.byteLength(`menu:apply:${id}`) <= 64);
   bot.config.HR_MANAGER_USERNAME = 'bad/path'; await click('menu:manager');
