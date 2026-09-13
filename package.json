@@ -8,6 +8,6 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test src/admin.test.js src/polling.test.js src/training.test.js src/crm.test.js src/menu.test.js"
+    "test": "node --test src/admin.test.js src/polling.test.js src/training.test.js src/crm.test.js src/crm-training.test.js src/menu.test.js"
   }
 }

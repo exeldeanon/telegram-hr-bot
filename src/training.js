@@ -18,6 +18,19 @@ export class Training {
     if (!event) fail('Заявка не найдена', 404);
     return { data, event };
   }
+  async getByCrmApplication(applicationId, flowId) {
+    const data = await this.bot.admin.load();
+    const event = data.events.find((item) => item.type === 'application' && (
+      item.crmApplicationId === Number(applicationId) ||
+      (flowId && item.key === `application-${flowId}`)
+    ));
+    if (!event) fail('Заявка ещё не синхронизировалась с ботом', 404);
+    if (!event.crmApplicationId) {
+      event.crmApplicationId = Number(applicationId);
+      await this.bot.admin.save(data);
+    }
+    return { data, event };
+  }
   checkOwner(event, userId) { if (String(event.userId) !== String(userId)) fail('Нет доступа', 403); }
   async status(id, value) {
     if (!Object.hasOwn(STATUSES, value)) fail('Неизвестный статус');
@@ -40,6 +53,37 @@ export class Training {
       await this.bot.admin.save(data);
     }
     return event;
+  }
+  summary(event) {
+    const course = event.training?.course || this.course(event);
+    const lessons = COURSES[course] || [];
+    if (!event.training) return {
+      assigned: false, course, courseTitle: VACANCIES[course]?.title || course || null,
+      totalDays: lessons.length || 5, currentDay: 0, testsPassed: 0, testsAttempted: 0,
+      attemptsTotal: 0, completedAt: null, assignedAt: null, nextAt: null, days: [],
+    };
+    const training = event.training;
+    const days = Array.from({ length: lessons.length }, (_, index) => {
+      const record = training.days[index];
+      const history = record?.history || (record?.result ? [record.result] : []);
+      const passedIndex = history.findIndex((result) => result.passed);
+      return {
+        day: index + 1, title: lessons[index]?.title || `День ${index + 1}`,
+        state: !record ? 'locked' : record.result?.passed ? 'passed' : record.result ? 'failed' : record.readAt ? 'testing' : 'sent',
+        sentAt: record?.sentAt || null, readAt: record?.readAt || null,
+        score: record?.result?.score ?? null, total: record?.result?.total ?? 3,
+        attempts: history.length, passedOnAttempt: passedIndex >= 0 ? passedIndex + 1 : null,
+        lastAttemptAt: history.at(-1)?.at || null,
+      };
+    });
+    return {
+      assigned: true, course: training.course, courseTitle: VACANCIES[training.course]?.title || training.course,
+      assignedAt: training.assignedAt, completedAt: training.completedAt || null, nextAt: training.nextAt || null,
+      totalDays: lessons.length, currentDay: training.completedAt ? lessons.length : Math.min(Math.max(training.days.length, 1), lessons.length),
+      testsPassed: days.filter((day) => day.state === 'passed').length,
+      testsAttempted: days.filter((day) => day.attempts > 0).length,
+      attemptsTotal: days.reduce((sum, day) => sum + day.attempts, 0), days,
+    };
   }
   async tick(now = Date.now()) {
     const { events } = await this.bot.admin.load();
