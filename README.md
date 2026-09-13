@@ -6,7 +6,9 @@ No public domain or webhook secret is required.
 ## UpHire start menu
 
 `/start` and `/menu` show the supplied UpHire logo and an inline panel:
-vacancies, about, manager contact, website, application, FAQ, process and training.
+vacancies, about, manager contact, website, application, training and a combined FAQ/process page.
+The privacy policy and personal-data links are shown directly in the welcome text instead
+of taking up separate menu buttons.
 Navigation edits its panel when possible and never resets application answers.
 Candidate input and the previous active bot card are removed after each step, so the
 private chat stays as a single clean interface. Messages from older releases whose IDs

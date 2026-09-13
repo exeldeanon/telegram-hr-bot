@@ -28,13 +28,17 @@ test('start offers branded menu; navigation leaves drafts intact', async t => {
   assert.deepEqual(await bot.loadState(1), state);
   const buttons = sent.at(-1).reply_markup.inline_keyboard.flat();
   assert.ok(buttons.some(b => b.url === 'https://up-hire.ru'));
-  assert.ok(buttons.some(b => b.url === 'https://up-hire.ru/policy'));
-  assert.ok(buttons.some(b => b.url === 'https://up-hire.ru/personal-data'));
+  assert.ok(!buttons.some(b => b.url === 'https://up-hire.ru/policy'));
+  assert.ok(!buttons.some(b => b.url === 'https://up-hire.ru/personal-data'));
+  assert.match(homeText, /https:\/\/up-hire\.ru\/policy/);
+  assert.match(homeText, /https:\/\/up-hire\.ru\/personal-data/);
+  assert.ok(buttons.some(b => b.callback_data === 'menu:faq'));
+  assert.ok(!buttons.some(b => b.callback_data === 'menu:how'));
   for (const page of ['about', 'how', 'faq', 'vacancies', 'manager', 'training', 'home']) {
     await click(`menu:${page}`, true);
     assert.deepEqual(await bot.loadState(1), state);
     assert.ok(sent.at(-1).reply_markup.inline_keyboard.flat().length);
-    assert.equal(sent.at(-1).asset, page === 'home' ? 'home' : page);
+    assert.equal(sent.at(-1).asset, page === 'home' ? 'home' : page === 'how' ? 'faq' : page);
   }
   await click('menu:apply', true); assert.deepEqual(await bot.loadState(1), state);
   assert.equal(sent.at(-1).asset, 'vacancies');
