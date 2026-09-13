@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { flushCrm } from "./crm.js";
 
 export async function runPolling(bot, signal) {
   let initialized = false;
@@ -19,7 +20,7 @@ export async function runPolling(bot, signal) {
         else await bot.handleUpdate(update);
         offset = update.update_id + 1;
       }
-      const maintenance = async () => { await bot.training?.tick(); await bot.admin?.flush(); };
+      const maintenance = async () => { await bot.training?.tick(); await bot.admin?.flush(); if (bot.config) await flushCrm(bot); };
       if (bot.exclusive) await bot.exclusive(maintenance); else await maintenance();
     } catch (error) {
       if (signal.aborted) return;
