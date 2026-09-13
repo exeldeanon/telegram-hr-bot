@@ -4,7 +4,7 @@ import { VACANCIES } from "./vacancies.js";
 import { Admin } from "./admin.js";
 import { Training } from "./training.js";
 import { button, keyboard, questionCard, vacancyLabels } from "./ui.js";
-import { handleMenu, homeText, homeKeyboard, backHome, replacementCatalogKeyboard } from './menu.js';
+import { handleMenu, homeText, homeKeyboard, backHome, replacementCatalogKeyboard, POLICY_URL, PERSONAL_DATA_URL } from './menu.js';
 
 const CALLBACKS = {
   acceptConsent: "consent:accept",
@@ -476,8 +476,8 @@ export class TelegramHrBot {
 
 Чтобы начать анкету, ознакомьтесь с документами:
 
-🔗 Политика конфиденциальности: ${this.config.POLICY_URL}
-🔗 Согласие на обработку персональных данных: ${this.config.PERSONAL_DATA_URL}
+🔗 Политика конфиденциальности: ${POLICY_URL}
+🔗 Согласие на обработку персональных данных: ${PERSONAL_DATA_URL}
 
 Нажимая «Принимаю · начать», вы соглашаетесь с обоими документами.`;
   }

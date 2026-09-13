@@ -33,8 +33,8 @@ Set these in the hosting panel:
 TELEGRAM_BOT_TOKEN=123456789:replace_me
 HR_MANAGER_USERNAME=UpHireManager1
 HR_MANAGER_CHAT_ID=
-POLICY_URL=https://example.com/privacy
-PERSONAL_DATA_URL=https://example.com/personal-data
+POLICY_URL=https://up-hire.ru/policy
+PERSONAL_DATA_URL=https://up-hire.ru/personal-data
 DATA_DIR=/app/data
 ```
 
@@ -51,7 +51,7 @@ The bot deletes its old webhook on startup without dropping pending updates.
 Look for `Telegram HR bot long polling started` in runtime logs, then send `/start`.
 Set `DATA_DIR=/app/data` on BotHost for persistent candidate state.
 Without DATA_DIR, local state remains in `storage/`.
-Replace example policy URLs with your actual published documents.
+The bot uses the canonical UpHire policy URLs in its menu and consent screen.
 
 The old TELEGRAM_WEBHOOK_SECRET variable is ignored and can be removed.
 HTTP port 3000 is only used for health checks; a public-domain 404 does not block polling.

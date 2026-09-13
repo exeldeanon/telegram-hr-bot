@@ -28,6 +28,8 @@ test('start offers branded menu; navigation leaves drafts intact', async t => {
   assert.deepEqual(await bot.loadState(1), state);
   const buttons = sent.at(-1).reply_markup.inline_keyboard.flat();
   assert.ok(buttons.some(b => b.url === 'https://up-hire.ru'));
+  assert.ok(buttons.some(b => b.url === 'https://up-hire.ru/policy'));
+  assert.ok(buttons.some(b => b.url === 'https://up-hire.ru/personal-data'));
   for (const page of ['about', 'how', 'faq', 'vacancies', 'manager', 'training', 'home']) {
     await click(`menu:${page}`, true);
     assert.deepEqual(await bot.loadState(1), state);
@@ -49,6 +51,8 @@ test('vacancy-first application still requires consent and reaches durable submi
   await message('/start'); assert.equal((await bot.loadState(1)).step, 'idle');
   await click('menu:job:chat_operator', true); assert.match(sent.at(-1).caption || sent.at(-1).text, /Оператор чата/);
   await click('menu:apply:chat_operator'); assert.equal((await bot.loadState(1)).step, 'awaiting_consent');
+  assert.match(sent.at(-1).caption || sent.at(-1).text, /up-hire\.ru\/policy/);
+  assert.match(sent.at(-1).caption || sent.at(-1).text, /up-hire\.ru\/personal-data/);
   await message('Анна'); assert.equal((await bot.loadState(1)).step, 'awaiting_consent');
   await click('consent:accept'); await message('Анна');
   assert.equal((await bot.loadState(1)).step, 'awaiting_vacancy_confirmation');

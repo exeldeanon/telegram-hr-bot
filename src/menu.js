@@ -2,6 +2,8 @@ import { button, keyboard, vacancyLabels } from './ui.js';
 import { VACANCIES } from './vacancies.js';
 
 export const WEBSITE = 'https://up-hire.ru';
+export const POLICY_URL = `${WEBSITE}/policy`;
+export const PERSONAL_DATA_URL = `${WEBSITE}/personal-data`;
 export const homeText = 'UpHire · работа начинается с диалога\n\n👋 Рады знакомству!\n\nЗдесь можно спокойно изучить направления, задать вопрос менеджеру и оставить анкету — всё в одном чате.\n\nВыберите, с чего начнём ↓';
 export const homeKeyboard = () => keyboard(
   [button('💼 Посмотреть вакансии', 'menu:vacancies')],
@@ -9,6 +11,7 @@ export const homeKeyboard = () => keyboard(
   [button('💬 Связь с менеджером', 'menu:manager'), { text: '↗ Наш сайт', url: WEBSITE }],
   [button('✍️ Моя анкета', 'menu:application'), button('❔ Частые вопросы', 'menu:faq')],
   [button('🎓 Моё обучение', 'menu:training')],
+  [{ text: '🔐 Конфиденциальность', url: POLICY_URL }, { text: '📄 Персональные данные', url: PERSONAL_DATA_URL }],
 );
 export const backHome = () => button('‹ Главное меню', 'menu:home');
 export const infoKeyboard = () => keyboard([button('💼 Выбрать вакансию', 'menu:vacancies')], [backHome()]);
