@@ -47,7 +47,7 @@ export class TelegramHrBot {
     if (message.chat.type !== "private" || !message.from) return;
     if (await this.admin.command(message, text)) return;
     if (text === '/training' || text === '/app') {
-      await this.sendMessage(chatId, '🎓 HR PRIME · Обучение\nУроки назначает менеджер после рассмотрения заявки. Выданные материалы и тесты приходят в этот чат.', this.miniAppKeyboard());
+      await this.sendMessage(chatId, '🎓 UpHire · Обучение\nУроки назначает менеджер после рассмотрения заявки. Выданные материалы и тесты приходят в этот чат.', this.miniAppKeyboard());
       return;
     }
 
@@ -82,7 +82,7 @@ export class TelegramHrBot {
     }
 
     if (transition.nextStep === "awaiting_vacancy") {
-      await this.sendMessage(chatId, "HR PRIME · ВЫБОР ПРОФЕССИИ\n\n✨ Приятно познакомиться!\nВыберите направление — покажу задачи и условия. После выбора продолжим анкету.", this.vacancyKeyboard());
+      await this.sendMessage(chatId, "UpHire · ВЫБОР ПРОФЕССИИ\n\n✨ Приятно познакомиться!\nВыберите направление — покажу задачи и условия. После выбора продолжим анкету.", this.vacancyKeyboard());
       return;
     }
     if (transition.nextStep === "awaiting_submission") {
@@ -334,7 +334,7 @@ export class TelegramHrBot {
   }
 
   welcomeText() {
-    return `HR PRIME · КАРЬЕРА
+    return `UpHire · КАРЬЕРА
 
 👋 Давайте найдём ваше направление
 
@@ -414,7 +414,7 @@ export class TelegramHrBot {
 
   miniAppKeyboard() {
     const url = this.config.MINI_APP_URL;
-    return url?.startsWith('https://') ? keyboard([{ text: '✨ Открыть HR Prime', web_app: { url } }]) : undefined;
+    return url?.startsWith('https://') ? keyboard([{ text: '✨ Открыть UpHire', web_app: { url } }]) : undefined;
   }
 
   async sendDocument(chatId, course, day, caption, replyMarkup) {

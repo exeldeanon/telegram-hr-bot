@@ -5,7 +5,7 @@ import { button, keyboard } from "./ui.js";
 export const COURSES = JSON.parse(await readFile(new URL('./courses.json', import.meta.url), 'utf8'));
 export const STATUSES = { filled: 'Заполнил анкету', dropped: 'Слетел', hold: 'Холд', paid: 'Выплачено' };
 export const DAY = 86400000;
-export const NOTICE = 'Материал предоставлен HR Prime. Указанные тарифы, сроки, доходы и регламенты — учебные примеры, не подтверждённые условия работодателя. Не передавайте и не запрашивайте пароли, PIN, CVV и SMS-коды. Рабочие действия выполняйте только по актуальным регламентам.';
+export const NOTICE = 'Материал предоставлен UpHire. Указанные тарифы, сроки, доходы и регламенты — учебные примеры, не подтверждённые условия работодателя. Не передавайте и не запрашивайте пароли, PIN, CVV и SMS-коды. Рабочие действия выполняйте только по актуальным регламентам.';
 const fail = (text, status = 400) => { throw Object.assign(new Error(text), { status }); };
 export class Training {
   constructor(bot) { this.bot = bot; }
@@ -50,7 +50,7 @@ export class Training {
       const day = t.days.length;
       const lesson = COURSES[t.course][day];
       try {
-        await this.bot.sendDocument(event.userId, t.course, day + 1, `🎓 HR PRIME · День ${day + 1}/5\n${lesson.title}\n\n${NOTICE}`, keyboard(
+        await this.bot.sendDocument(event.userId, t.course, day + 1, `🎓 UpHire · День ${day + 1}/5\n${lesson.title}\n\n${NOTICE}`, keyboard(
           [button('✅ Ознакомился · пройти тест', `learn:read:${event.id}:${day}`)],
           ...(this.bot.miniAppKeyboard()?.inline_keyboard || []),
         ));

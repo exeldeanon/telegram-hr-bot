@@ -20,7 +20,7 @@ for key, prefix in mapping.items():
         target.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target / f'day{day}.pdf')
         cover = reader.pages[0].extract_text().strip().splitlines()
-        title = ' '.join(line.strip() for line in cover[1:] if 'HR-PRIME' not in line).strip()
+        title = ' '.join(line.strip() for line in cover[1:] if 'UpHire' not in line).strip()
         lessons.append({'day': day, 'title': title,
             'text': '\n\n'.join(page.extract_text() for page in reader.pages[1:]),
             'source': source.name})

@@ -13,5 +13,5 @@ export const vacancyLabels = {
 export function questionCard(questions, step) {
   const index = Object.keys(questions).indexOf(step);
   if (index < 0) return "Чтобы начать анкету, отправьте /start.";
-  return `HR PRIME · ЗНАКОМСТВО\n${"●".repeat(index)}${"○".repeat(8 - index)}  ${index + 1}/8\n\n${questions[step]}\n\nОтветьте сообщением ниже.`;
+  return `UpHire · ЗНАКОМСТВО\n${"●".repeat(index)}${"○".repeat(8 - index)}  ${index + 1}/8\n\n${questions[step]}\n\nОтветьте сообщением ниже.`;
 }

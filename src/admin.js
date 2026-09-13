@@ -63,7 +63,7 @@ export class Admin {
       const day = (at) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Moscow" }).format(new Date(at));
       const today = events.filter((event) => day(event.at) === day(Date.now()));
       const stats = (items) => `Запустили бота: ${new Set(items.filter((e) => e.type === "visit").map((e) => e.userId)).size}\nНачали анкету: ${new Set(items.filter((e) => e.type === "started").map((e) => e.userId)).size}\nПодано заявок: ${items.filter((e) => e.type === "application").length}`;
-      await this.bot.sendMessage(this.id, `HR PRIME · ПАНЕЛЬ УПРАВЛЕНИЯ\n\n📊 За всё время\n${stats(events)}\n\n☀️ Сегодня (Москва)\n${stats(today)}\n\n🔔 Ожидают уведомления: ${events.filter((e) => !e.delivered).length}\n\nЗапуски и начала — уникальные пользователи за период. Учёт с момента установки обновления.`, adminMenu());
+      await this.bot.sendMessage(this.id, `UpHire · ПАНЕЛЬ УПРАВЛЕНИЯ\n\n📊 За всё время\n${stats(events)}\n\n☀️ Сегодня (Москва)\n${stats(today)}\n\n🔔 Ожидают уведомления: ${events.filter((e) => !e.delivered).length}\n\nЗапуски и начала — уникальные пользователи за период. Учёт с момента установки обновления.`, adminMenu());
     } else if (command === "/applications") {
       const pages = Math.max(1, Math.ceil(applications.length / 10));
       const page = Math.min(pages, Math.max(1, Number.parseInt(arg, 10) || 1));

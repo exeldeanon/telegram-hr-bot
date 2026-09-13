@@ -1,6 +1,6 @@
 # Telegram HR bot
 
-Standalone Node.js Telegram long-polling bot for HR Prime candidate applications.
+Standalone Node.js Telegram long-polling bot for UpHire candidate applications.
 No public domain or webhook secret is required.
 
 ## Hosting settings
@@ -92,7 +92,7 @@ It needs a publicly reachable HTTPS reverse proxy to port 3000, even though Tele
 The previously broken BotHost public domain must be repaired by hosting support or the server hosted
 on another Node hosting service with HTTPS. A 404 from the hosting proxy cannot be fixed by setting an env var.
 Once https://YOUR-DOMAIN/app loads, set MINI_APP_URL=https://YOUR-DOMAIN/app and restart.
-Open /app in the bot or /admin, then click Открыть HR Prime. A normal browser does not have Telegram
+Open /app in the bot or /admin, then click Открыть UpHire. A normal browser does not have Telegram
 authorization; the public landing screen intentionally contains no candidate data.
 
 Authentication validates Telegram Mini App initData HMAC and a one-hour expiry on the server.

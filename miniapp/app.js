@@ -17,7 +17,7 @@ const age = (at) => { const hours = Math.max(0, Math.floor((Date.now() - new Dat
 const status = (e) => node('span', model.statuses[e.status || 'filled'], `badge ${e.status || 'filled'}`);
 function hero(title, subtitle) {
   const box = node('section', undefined, 'hero');
-  return append(box, node('div', 'HR PRIME / ' + (model.admin ? 'PEOPLE' : 'ACADEMY'), 'eyebrow'), node('h1', title), node('p', subtitle), node('div', '✳', 'orb'));
+  return append(box, node('div', 'UpHire / ' + (model.admin ? 'PEOPLE' : 'ACADEMY'), 'eyebrow'), node('h1', title), node('p', subtitle), node('div', '✳', 'orb'));
 }
 function stats() {
   const box = node('div', undefined, 'stats');
@@ -121,4 +121,4 @@ async function lesson(id, day) {
 }
 document.querySelector('#refresh').onclick = () => reload().catch(showError);
 if (tg?.initData) reload().catch(showError);
-else document.querySelector('#loading').textContent = 'Откройте этот кабинет кнопкой «Открыть HR Prime» в Telegram-боте. Здесь появятся ваши заявки и обучение.';
+else document.querySelector('#loading').textContent = 'Откройте этот кабинет кнопкой «Открыть UpHire» в Telegram-боте. Здесь появятся ваши заявки и обучение.';
